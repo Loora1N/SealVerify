@@ -1,0 +1,7 @@
+[project]
+name = "sealverify"
+version = "0.0.0"
+description = "Electronic seal and signature verification for OFD documents"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []

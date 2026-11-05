@@ -1,0 +1,47 @@
+# Local assistant instructions (including common case/name variants)
+[Pp][Rr][Oo][Mm][Pp][Tt].[Mm][Dd]
+[Aa][Gg][Ee][Nn][Tt].[Mm][Dd]
+[Aa][Gg][Ee][Nn][Tt][Ss].[Mm][Dd]
+
+# Python environments and caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+
+# Local reference material and business data
+/材料/
+/local-data/
+/reports/
+/logs/
+*.log
+
+# Local credentials and private keys
+.env
+.env.*
+!.env.example
+*.key
+*.p12
+*.pfx
+*.pem
+
+# Editors and OS metadata
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
