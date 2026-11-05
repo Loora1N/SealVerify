@@ -133,6 +133,9 @@ py -3.12 -m venv .venv
 ```text
 SealVerify/
 ├── README.md                 # 项目说明、需求与路线
+├── CONTRIBUTING.md           # 开发、验收与 PR 合并流程
+├── .github/
+│   └── pull_request_template.md  # PR 交付说明模板
 ├── pyproject.toml            # 项目元数据与 Python 最低版本
 ├── .python-version           # 选用的 Python 开发版本
 ├── .gitignore                # 本地材料、敏感配置及生成物排除规则
@@ -162,6 +165,9 @@ SealVerify/
 
 ## 开发与协作
 
+采用“提出需求 → 任务分支开发与自检 → Pull Request → 维护者验收并合并”的流程。维护者可主要通过阅读 PR 的行为说明、验证证据和验收步骤参与，无需亲自编写代码。具体操作见 [协作指南](CONTRIBUTING.md)。
+
+- 每个任务使用独立分支并提交 PR，维护者决定是否合并到 `main`；不默认启用自动合并。
 - 开始任务前阅读本文件、最近的开发日志，以及本机已有的开发约定。
 - 需求变更应同步更新 README；将计划能力与已经实现、验证的能力分开描述。
 - 每次完成开发任务后，创建一篇独立日志并更新日志索引，记录修改文件、验证结果、限制与后续事项。
