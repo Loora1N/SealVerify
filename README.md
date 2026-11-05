@@ -4,7 +4,7 @@
 
 > 当前阶段：需求整理与开发环境初始化。已配置 Python 项目元数据及本地虚拟环境，尚无可运行的业务程序或安装包。下文的业务功能均为开发目标。
 
-项目仓库：[Loora1N/SealVerify](https://github.com/Loora1N/SealVerify)。
+项目仓库：[Loora1N/SealVerify](https://github.com/Loora1N/SealVerify)（公开）。
 
 ## 目录
 
