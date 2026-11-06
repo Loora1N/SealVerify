@@ -37,3 +37,39 @@ jobs:
           .\.venv\Scripts\python.exe -m sealverify --version
           .\.venv\Scripts\sealverify.exe --help
           .\.venv\Scripts\python.exe examples/result_report.py
+
+  reader:
+    name: OFD reader / Chromium
+    runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install Python package
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install .
+      - name: Rebuild offline reader and check reproducibility
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- ../src/sealverify/web
+      - name: Install browser
+        working-directory: frontend
+        run: npx playwright install chromium
+      - name: Exercise the installed reader
+        working-directory: frontend
+        run: npm test

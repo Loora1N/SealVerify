@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sealverify"
-version = "0.1.0"
+version = "0.2.0"
 description = "Electronic seal and signature verification for OFD documents"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,3 +20,6 @@ include-package-data = false
 where = ["src"]
 include = ["sealverify*"]
 namespaces = false
+
+[tool.setuptools.package-data]
+sealverify = ["web/*", "web/vendor/*", "web/fonts/*"]

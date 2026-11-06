@@ -1,0 +1,19 @@
+{
+  "name": "sealverify-reader-assets",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@ofdrw/ofdrw-viewer-ui": "0.1.7",
+    "@ofdrw/ofdrw-viewer-engine": "0.1.7",
+    "@ofdrw/ofdrw-viewer-crypto": "0.1.7",
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "esbuild": "0.28.2"
+  }
+}

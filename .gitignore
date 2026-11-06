@@ -20,6 +20,9 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+node_modules/
+test-results/
+playwright-report/
 
 # Local reference material and business data
 /材料/
