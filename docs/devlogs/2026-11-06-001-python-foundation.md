@@ -5,7 +5,7 @@
 - 日期：2026-11-06（Asia/Shanghai）
 - 同日编号：001
 - 类型：基础功能、测试、文档
-- 状态：本地实现已完成，持续集成验证与 PR 交付进行中
+- 状态：实现与验证已完成，已提交 PR #2，等待维护者审查
 - 任务来源：维护者合并 PR #1 后要求继续工作，按 M1 推进基础包、结果模型和测试入口。
 
 ## 目标与范围
@@ -44,13 +44,13 @@
 | 从 wheel 直接导入及 Python 3.9 语法检查 | 通过；空计划保持 `incomplete`；语法检查不代替对应版本的运行测试 |
 | 合成示例与 `pip check` | 示例输出 `incomplete`，依赖检查通过 |
 | 公开文件、文档链接和 Git 差异检查 | 10 个 Markdown 文件、26 个内部链接或锚点通过；22 个公开文件不含本地指令、环境、产物或备份；差异与凭据特征检查通过 |
-| GitHub Actions / Python 3.9、3.12 | 待远程运行 |
+| GitHub Actions / Python 3.9、3.12 | 两个 Windows 作业均通过安装、27 项测试和入口/示例检查；[运行记录](https://github.com/Loora1N/SealVerify/actions/runs/42142975433) 对应实现提交 `d36f44c` |
 
 ## 已知限制与未完成项
 
 - 没有业务解析器、密码校验器、证书校验器或最终用户安装包；合成示例不得作为验签证据。
 - `passed` 只描述已声明计划的适用必需项，不能代表完整标准符合性；可选项的未确定结果仍需查看明细。
-- 本机只有 Python 3.12 的实际验证，其他解释器的兼容性待 CI 核验。
+- 已验证本机 Windows / Python 3.12.9 及 CI 的 Windows / Python 3.9、3.12，其他平台和版本未在本次实测。
 
 ## 后续事项
 
@@ -59,5 +59,6 @@
 ## 交付记录
 
 - 分支：`codex/python-foundation`，基于已合并的 `84bbbb1`。
-- 本地提交：按 `feat: add Python foundation and verification result model` 主题提交。
-- PR：待创建，交付后由维护者决定合并。
+- 实现提交：`d36f44c`，主题为 `feat: add Python foundation and verification result model`；验收记录随本任务后续文档提交交付。
+- PR：[PR #2](https://github.com/Loora1N/SealVerify/pull/2)。
+- 合并状态：未合并，由维护者审查后决定；`main` 保持在 PR #1 合并后的基线。
