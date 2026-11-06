@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Python ${{ matrix.python-version }} / Windows
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.12']
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Create project environment
+        run: python -m venv .venv
+      - name: Install package
+        run: .\.venv\Scripts\python.exe -m pip install .
+      - name: Run unit tests
+        run: .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+      - name: Check entry points and synthetic example
+        run: |
+          .\.venv\Scripts\python.exe -m sealverify --version
+          .\.venv\Scripts\sealverify.exe --help
+          .\.venv\Scripts\python.exe examples/result_report.py

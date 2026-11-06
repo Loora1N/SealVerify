@@ -17,6 +17,7 @@
 
 | 日期 | 编号 | 任务 | 状态 |
 | --- | --- | --- | --- |
-| 2026-11-05 | 003 | [旧仓库清理与 PR 协作流程](2026-11-05-003-repository-cleanup-and-pr-workflow.md) | 文档已完成，待创建 PR |
+| 2026-11-06 | 001 | [Python 基础包与验证结果模型](2026-11-06-001-python-foundation.md) | 开发与验证中 |
+| 2026-11-05 | 003 | [旧仓库清理与 PR 协作流程](2026-11-05-003-repository-cleanup-and-pr-workflow.md) | 已合并（PR #1） |
 | 2026-11-05 | 002 | [本地指令隔离与 Python 开发环境](2026-11-05-002-local-config-and-python-env.md) | 已完成 |
 | 2026-11-05 | 001 | [项目文档与版本管理初始化](2026-11-05-001-project-initialization.md) | 已完成 |

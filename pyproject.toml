@@ -1,7 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "sealverify"
-version = "0.0.0"
+version = "0.1.0"
 description = "Electronic seal and signature verification for OFD documents"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []
+
+[project.scripts]
+sealverify = "sealverify.cli:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["sealverify*"]
+namespaces = false
