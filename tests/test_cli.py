@@ -32,6 +32,17 @@ class EntryPointTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 2)
         self.assertIn("example.ofd", completed.stderr)
 
+    def test_reader_missing_file_returns_readable_error(self):
+        completed = self.run_cli("view", "file-that-does-not-exist.ofd", "--no-browser")
+        self.assertEqual(completed.returncode, 1)
+        self.assertIn("无法打开阅读器", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_reader_rejects_conflicting_input_and_invalid_port(self):
+        for args in (("view", "example.ofd", "--demo"), ("view", "--port", "65536")):
+            with self.subTest(args=args):
+                self.assertEqual(self.run_cli(*args).returncode, 2)
+
     def test_synthetic_example_reports_incomplete_instead_of_pass(self):
         example = Path(__file__).resolve().parents[1] / "examples" / "result_report.py"
         completed = subprocess.run(

@@ -5,7 +5,7 @@
 - 日期：2026-11-06（Asia/Shanghai）
 - 同日编号：001
 - 类型：基础功能、测试、文档
-- 状态：实现与验证已完成，已提交 PR #2，等待维护者审查
+- 状态：已完成并由维护者合并 PR #2（2026-11-06）
 - 任务来源：维护者合并 PR #1 后要求继续工作，按 M1 推进基础包、结果模型和测试入口。
 
 ## 目标与范围
@@ -61,4 +61,4 @@
 - 分支：`codex/python-foundation`，基于已合并的 `84bbbb1`。
 - 实现提交：`d36f44c`，主题为 `feat: add Python foundation and verification result model`；验收记录随本任务后续文档提交交付。
 - PR：[PR #2](https://github.com/Loora1N/SealVerify/pull/2)。
-- 合并状态：未合并，由维护者审查后决定；`main` 保持在 PR #1 合并后的基线。
+- 合并状态：维护者于 2026-11-06 合并 PR #2，合并提交 `bba03f4`；后续阅读任务从该基线开始。

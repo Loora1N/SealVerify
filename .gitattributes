@@ -10,7 +10,20 @@
 *.json text eol=lf
 *.ps1 text eol=crlf
 *.bat text eol=crlf
+*.cmd text eol=crlf
+*.js text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.txt text eol=lf
+*.otf binary
 *.png binary
 *.jpg binary
 *.pdf binary
 *.ofd binary
+
+# Generated JavaScript contains significant whitespace inside template literals.
+src/sealverify/web/reader.js whitespace=-blank-at-eol linguist-generated=true
+src/sealverify/web/vendor/viewer.css linguist-generated=true
+# Preserve original third-party license formatting.
+src/sealverify/web/vendor/THIRD_PARTY_NOTICES.txt whitespace=-blank-at-eol
