@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:local": "playwright test --config playwright.local.config.js"
   },
   "dependencies": {
     "@ofdrw/ofdrw-viewer-ui": "0.1.7",

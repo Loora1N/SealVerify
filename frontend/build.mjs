@@ -16,6 +16,21 @@ const result = await build({
       const marker = '  templateResults.forEach((result, index) => {';
       if (contents.split(marker).length !== 2) throw new Error('上游模板准备逻辑已改变，请复核取消处理补丁。');
       contents = contents.replace(marker, '  throwIfAborted2();\n' + marker);
+      // 签章面板改变可用宽度、快速翻页或切换文件会取消旧渲染。
+      // 资源准备应继续传播取消，不能把它降级成字体/图片损坏提示。
+      for (const [target, replacement] of [
+        ['annotations = await loader.loadAnnotations(page);\n    } catch (error) {',
+         'annotations = await loader.loadAnnotations(page);\n    } catch (error) {\n      if (isTerminalSignatureError(error)) throw error;'],
+        ['return await loader.loadFontFaces(resources);\n  } catch (error) {',
+         'return await loader.loadFontFaces(resources);\n  } catch (error) {\n    if (isTerminalSignatureError(error)) throw error;'],
+        ['image = await loader.decodeSeal(source.seal);\n    } catch (error) {',
+         'image = await loader.decodeSeal(source.seal);\n    } catch (error) {\n      if (isTerminalSignatureError(error)) throw error;'],
+        ['result.set(item.value.resource.id, item.value.image);\n    } else {',
+         'result.set(item.value.resource.id, item.value.image);\n    } else {\n      if (isTerminalSignatureError(item.reason)) throw item.reason;'],
+      ]) {
+        if (contents.split(target).length !== 2) throw new Error('上游资源准备逻辑已改变，请复核取消处理补丁。');
+        contents = contents.replace(target, replacement);
+      }
       return { contents, loader: 'js' };
     });
   }}],

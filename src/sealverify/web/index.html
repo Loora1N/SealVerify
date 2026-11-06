@@ -15,6 +15,7 @@
       <input id="file" type="file" accept=".ofd" hidden>
       <button id="open" class="primary" data-open>打开 OFD</button>
       <button id="demo" data-open>阅读示例</button>
+      <button id="signatures-toggle" aria-controls="signature-panel" aria-expanded="false" disabled>签章信息</button>
       <button id="close" disabled>关闭文档</button>
       <button id="exit">退出阅读器</button>
     </nav>
@@ -27,6 +28,14 @@
   <details id="diagnostics" hidden><summary>阅读提示（<span id="diagnostic-count">0</span>）</summary><ul id="messages"></ul></details>
   <main>
     <div id="viewer"></div>
+    <aside id="signature-panel" aria-label="签章属性" hidden>
+      <h2>签章信息</h2>
+      <p class="inspection-notice">属性读取不代表验证通过。证书、声明时间、签名值和文件摘要均未验证。</p>
+      <p id="signature-status" role="status"></p>
+      <select id="signatures" aria-label="选择签章"></select>
+      <div id="signature-content"></div>
+      <div id="inspection-issues"></div>
+    </aside>
     <div id="empty" class="empty"><div class="paper-icon">OFD</div><h1>打开文档，开始阅读</h1><p>支持翻页、缩放、缩略图、文字查找与打印</p><p class="muted">文件在本机处理，不上传至远程服务器。<br>也可以点击“阅读示例”体验多页文档。</p></div>
   </main>
   <footer>页面按文档版式显示。缺少原字体时使用备用字体；阅读提示会保留无法完整显示的原因。</footer>

@@ -1,5 +1,6 @@
 import { OFDViewer } from '@ofdrw/ofdrw-viewer-ui';
 import { inspectDocument, documentSource } from './document.js';
+import { signaturePanel } from './signatures.js';
 
 // 禁止第三方组件根据 ?file= 读取远程来源；文件只能由本页明确选取。
 history.replaceState(null, '', location.pathname);
@@ -51,6 +52,7 @@ viewer.on('documentopen', () => {
 });
 // 对外仅提供阅读器调试状态，供自动化回归验证实际渲染；不包含文件字节。
 window.sealverifyReader = viewer;
+const signatures = signaturePanel(viewer);
 
 function setBusy(value) {
   busy = value;
@@ -67,6 +69,7 @@ async function showDocument(index) {
   document.querySelector('#document-name').textContent = inspected.file.name;
   await viewer.open(source);
   if (!viewer.getPageCount()) throw new Error('所选文档没有可阅读的页面。');
+  signatures.document(index);
   message(`已打开 · 共 ${viewer.getPageCount()} 页`);
 }
 async function openFile(file) {
@@ -75,6 +78,7 @@ async function openFile(file) {
   try {
     // 无效输入不会先关闭原文档；通过容器预检后再切换。
     const next = await inspectDocument(file);
+    signatures.reset();
     inspected = next;
     docSelect.replaceChildren(...next.documents.map((doc, index) => {
       const option = document.createElement('option'); option.value = index;
@@ -82,6 +86,7 @@ async function openFile(file) {
     }));
     document.querySelector('#document-picker').hidden = next.documents.length < 2;
     await showDocument(0);
+    await signatures.load(file);
   } catch (error) {
     message(`打开失败：${error.message || error}`, true);
     diagnose(error);
@@ -112,6 +117,7 @@ document.addEventListener('drop', event => {
 document.querySelector('#close').addEventListener('click', async () => {
   if (busy) return;
   await viewer.close(); inspected = null; resetMessages();
+  signatures.reset();
   document.querySelector('#document-name').textContent = 'OFD 阅读器';
   document.querySelector('#document-picker').hidden = true;
   document.querySelector('#empty').hidden = false;
