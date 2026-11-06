@@ -1,8 +1,8 @@
 # SealVerify
 
-基于 Python 规划开发的电子印章与电子签章验证工具，面向 OFD 等签章文件的解析、属性展示和完整验证，帮助使用者定位问题并判断验证结论。
+基于 Python 开发的电子印章与电子签章验证工具，面向 OFD 等签章文件的解析、属性展示和完整验证，帮助使用者定位问题并判断验证结论。
 
-> 当前阶段：需求整理与开发环境初始化。已配置 Python 项目元数据及本地虚拟环境，尚无可运行的业务程序或安装包。下文的业务功能均为开发目标。
+> 当前阶段：M1 基础框架。已提供可安装的 Python 包、帮助/版本命令、验证计划与结果模型、JSON 序列化及基础测试。OFD 解析、密码验签、证书验证和面向最终用户的安装包尚未实现。
 
 项目仓库：[Loora1N/SealVerify](https://github.com/Loora1N/SealVerify)（公开）。
 
@@ -83,7 +83,7 @@
 
 ## 验证结果约定
 
-以下为待实现的报告契约，具体数据结构在开发时确定。
+以下状态已在基础结果模型中实现，接口和汇总规则见 [结果模型说明](docs/result-model.md)。实际业务检查仍待实现。
 
 | 状态 | 含义 |
 | --- | --- |
@@ -96,22 +96,26 @@
 
 整体结论必须与逐项结果一起呈现：存在失败项则报告失败；没有失败但必需检查中存在无法确定、跳过或错误时，报告验证不完整；只有所有适用的必需检查通过时，才可报告整体通过。可选字段缺失不能无条件判为失败或通过。
 
+报告同时记录检查计划与实际结果。计划中的任一项未返回结果时，报告验证不完整；空计划、全部不适用或仅有可选检查也不能形成整体通过结论。可选项的异常会保留在明细中，即使整体必需检查通过也应复核明细。
+
 ## 使用方式
 
 ### 当前可用内容
 
 1. 阅读本 README，了解需求范围与当前阶段。
-2. 按下方步骤准备 Python 虚拟环境。
-3. 开发前阅读最近的 [开发日志](docs/devlogs/README.md)，完成任务后记录实际改动与验证结果。
+2. 按下方步骤准备 Python 虚拟环境、安装基础包并运行命令行入口。
+3. 运行合成报告示例，了解缺少材料时的汇总结果；查看 [结果模型说明](docs/result-model.md)。
+4. 开发前阅读最近的 [开发日志](docs/devlogs/README.md)，完成任务后记录实际改动与验证结果。
 
-目前没有业务启动或功能测试命令。首次引入代码时同步补充依赖安装、运行示例、测试命令及打包步骤，且命令必须经过实际验证。
+当前命令行只提供帮助与版本，不接收待验签文件。合成报告示例没有读取 OFD 或执行任何密码验证。
 
 ### Python 开发环境
 
 - 最低版本要求：Python 3.9，见 `pyproject.toml` 的 `requires-python`。
 - 开发版本：Python 3.12，见 `.python-version`；本次实际验证使用 3.12.9。
 - 环境目录：项目根目录 `.venv/`，不提交 Git。虚拟环境应在每台开发机器上重新创建。
-- 当前只有项目元数据，尚未定义构建后端或安装入口，也未引入业务依赖；后续选择依赖时需满足最低版本要求。尚未完成 Python 3.9 的兼容性测试。
+- 构建后端为 setuptools，运行时仅依赖 Python 标准库。安装时 pip 会在隔离的构建环境准备构建依赖；测试使用标准库 unittest。
+- GitHub Actions 配置了 Windows 上的 Python 3.9 与 3.12 测试；是否通过以对应提交的 Checks 为准。基础测试不等于真实签章业务已通过验收。
 
 Windows PowerShell 下，在项目根目录执行（已存在 `.venv` 时直接使用，无需重复创建）：
 
@@ -124,6 +128,28 @@ py -3.12 -m venv .venv
 
 后续安装依赖、运行程序或测试时，统一使用 `.\.venv\Scripts\python.exe` 和该解释器的 `-m pip`。显式调用虚拟环境解释器即可，无需激活脚本或修改 PowerShell 执行策略。环境机制参考 [Python venv 文档](https://docs.python.org/3.12/library/venv.html)。
 
+### 安装、运行和测试
+
+在项目根目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e .
+.\.venv\Scripts\python.exe -m sealverify --help
+.\.venv\Scripts\sealverify.exe --version
+.\.venv\Scripts\python.exe examples/result_report.py
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+版本输出为 `SealVerify 0.1.0`。合成示例的 `overall_status` 为 `incomplete`：即使示例签名项通过，缺少证书链材料也不能整体通过。
+
+需要构建供开发者安装的 wheel 时执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip wheel . --no-deps --wheel-dir dist
+```
+
+产物位于 `dist/`，该目录不纳入 Git。wheel 需要 Python 环境，不是最终面向同事分发的独立可执行程序。
+
 ### 计划中的最终操作流程
 
 打开工具 → 选择 OFD 等输入文件 → 按需导入证书链、信任锚和 CRL → 启动验证 → 查看属性、逐项结果及问题上下文。报告导出格式随界面方案一起确定。
@@ -135,12 +161,17 @@ SealVerify/
 ├── README.md                 # 项目说明、需求与路线
 ├── CONTRIBUTING.md           # 开发、验收与 PR 合并流程
 ├── .github/
-│   └── pull_request_template.md  # PR 交付说明模板
+│   ├── pull_request_template.md  # PR 交付说明模板
+│   └── workflows/tests.yml   # Windows / Python 3.9、3.12 基础检查
 ├── pyproject.toml            # 项目元数据与 Python 最低版本
 ├── .python-version           # 选用的 Python 开发版本
 ├── .gitignore                # 本地材料、敏感配置及生成物排除规则
 ├── .gitattributes            # 文本换行约定
+├── src/sealverify/           # 基础命令行入口与结果模型
+├── tests/                    # 汇总边界、数据契约与入口测试
+├── examples/result_report.py # 人工构造的结果示例
 ├── docs/
+│   ├── result-model.md       # 数据契约与汇总规则
 │   └── devlogs/
 │       ├── README.md         # 开发日志规范与索引
 │       ├── TEMPLATE.md       # 单次任务日志模板
@@ -149,13 +180,13 @@ SealVerify/
 └── 材料/                     # 仅本地保留的参考资料，可不存在于克隆目录
 ```
 
-源码、测试和打包目录在对应开发阶段创建，不将空目录视为已实现功能。
+业务解析器、密码验证器和图形界面在对应阶段实现，不将基础入口视为已完成业务验证。
 
 ## 开发路线
 
 - [x] M0：整理需求、协作约定和首篇日志，建立版本管理。
 - [x] 环境准备：确定 Python >=3.9 的版本要求，使用 Python 3.12 创建本地 `.venv`。
-- [ ] M1：确定业务依赖，搭建源码入口、结果模型及测试入口。
+- [x] M1：建立可安装基础包、命令行入口、结果模型、合成示例及测试/CI 入口；密码与解析依赖留待业务阶段选择。
 - [ ] M2：实现 OFD 和签章结构解析、属性展示，覆盖损坏输入与多签章场景。
 - [ ] M3：实现电子印章、电子签章及原文杂凑验证。
 - [ ] M4：实现证书路径、CRL、签章时间和时间戳检查，完善不完整验证的报告。
