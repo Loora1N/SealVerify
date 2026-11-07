@@ -3,9 +3,10 @@
 ## 基本信息
 
 - 日期：2026-11-06（Asia/Shanghai）
+- 验收补充：2026-11-07（Asia/Shanghai）
 - 同日编号：003
 - 类型：功能、界面、测试、文档
-- 状态：本地功能与回归完成，正在准备 PR 与远程检查
+- 状态：实现与验收完成，已提交 PR #4，等待维护者审查
 - 任务来源：继续完成 M2b，并以本地 OFD 样本建立持续回归。
 
 ## 目标与范围
@@ -50,7 +51,9 @@
 | `pip check` | Python 依赖一致性通过 |
 | wheel 安装、包内容与源码 | 20 个条目，源码和离线资源逐字节匹配，无私有文件；在根目录 .venv 安装后执行 Python/浏览器/本地基准回归 |
 | Python 3.9 语法及本地文档链接 | 15 个 Python 文件通过语法检查；30 个文档链接目标存在。实际 Python 3.9 运行以 CI 为准 |
-| 远程 CI | 尚未执行，待推送任务分支后检查 |
+| 远程 CI | Windows / Python 3.9、3.12 和 Chromium 作业全部通过，包括前端重建一致性。[运行记录](https://github.com/Loora1N/SealVerify/actions/runs/42183942430) 对应实现提交 `b185df4`；文档补充提交的结果见 PR Checks |
+
+2026-11-07 完成交付复核：远程 PR 当前无审查反馈；重新核对两个本地包的原件哈希和已登记结构，结果一致。实现阶段的取消误报、缺少时间戳封装内容和页面边界回退问题均已修正并纳入相应回归，没有将修复前的失败记录为通过。
 
 ## 已知限制与未完成项
 
@@ -66,6 +69,6 @@
 
 ## 交付记录
 
-- 本地提交：待提交，计划主题 `feat: inspect OFD signature attributes and locate stamps`。
+- 实现提交：`b185df4`，主题 `feat: inspect OFD signature attributes and locate stamps`；本篇验收补充随文档提交交付。
 - 远程仓库与分支：`Loora1N/SealVerify` / `codex/signature-inspection`。
-- 上传状态：准备提交 PR，未推送 main，不自动合并。
+- 上传状态：任务分支已推送并创建 [PR #4](https://github.com/Loora1N/SealVerify/pull/4)，未合并；由维护者审查后决定合并。
