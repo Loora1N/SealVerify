@@ -25,13 +25,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     view.add_argument("--port", type=int, default=0, help="本机端口，默认随机选择空闲端口")
     inspect = commands.add_parser('inspect', help='输出 OFD 签章属性 JSON（不执行验签）')
     inspect.add_argument('file', type=Path, help='本地 OFD 文件')
+    check_format = commands.add_parser('check-format', help='逐项诊断电子签章数据格式，错误记录后继续检查')
+    check_format.add_argument('file', type=Path, help='本地 OFD 文件')
     args = parser.parse_args(argv)
-    if args.command == 'inspect':
+    if args.command in ('inspect', 'check-format'):
         from .inspection import inspect_ofd, MAX_FILE_BYTES
         try:
             with args.file.open('rb') as stream:
                 report = inspect_ofd(stream.read(MAX_FILE_BYTES + 1))
             print(json.dumps(report, ensure_ascii=False, indent=2))
+            if args.command == 'check-format':
+                return 0 if report['format_validation']['overall_status'] == 'passed' else 1
             return 0 if report['parse_status'] == 'parsed' else 1
         except OSError as exc:
             print('无法读取文件：' + str(exc), file=sys.stderr)

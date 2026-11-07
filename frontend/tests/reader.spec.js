@@ -119,7 +119,10 @@ test('损坏输入给出提示，原文档可继续阅读，损坏单页不阻�
   await expect(page.locator('#status')).toContainText('打开失败');
   expect(await page.evaluate(() => window.sealverifyReader.getPageCount())).toBe(4);
   await page.locator('#file').setInputFiles(path.join(fixtures, 'broken.ofd'));
-  await expect(page.locator('#status')).toContainText('共 4 页');
+  // 损坏页的异步提示可覆盖“共 N 页”；等待加载完成后检查真实文档与页数。
+  await expect(page.locator('#open')).toBeEnabled();
+  await expect(page.locator('#document-name')).toHaveText('broken.ofd');
+  expect(await page.evaluate(() => window.sealverifyReader.getPageCount())).toBe(4);
   await pageNumber(page, 2);
   await expect(page.locator('#diagnostics')).toBeVisible();
   await pageNumber(page, 4);

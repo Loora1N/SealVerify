@@ -85,6 +85,29 @@ def verify_signature_values(data, report):
     return count
 
 
+def verify_format_results(report):
+    """新增格式诊断的独立预期；不修改既有业务清单。"""
+    count = 0
+    required = {'container', 'version_match', 'cert/certificate', 'signatureAlgID/key_match',
+                'signatureValue/encoding', 'sm3_length', 'toSign/eseal/cert/certificate'}
+    for doc in report['documents']:
+        for sig in doc['signatures']:
+            value = sig['format_validation']
+            checks = {item['check_id']: item for item in value['checks']}
+            if value['overall_status'] != 'incomplete' or value['summary']['missing']:
+                raise ValueError('基准格式诊断状态或检查完整性改变')
+            if any(item['status'] in ('failed', 'error', 'skipped') for item in checks.values()):
+                raise ValueError('基准新增格式错误、检查异常或跳过')
+            if {key for key, item in checks.items() if item['status'] == 'indeterminate'} != {'property_scope', 'referenced_profiles'}:
+                raise ValueError('基准格式待复核范围改变')
+            if not required <= checks.keys() or any(checks[key]['status'] != 'passed' for key in required):
+                raise ValueError('基准必要格式检查未通过或缺失')
+            count += 1
+    if not count or report['format_validation']['signatures_checked'] != count:
+        raise ValueError('基准格式检查遗漏签章')
+    return count
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifest', type=Path, default=Path('local-data/local-samples.json'))
@@ -104,9 +127,10 @@ def main():
             if snapshot(report) != item['expected']:
                 raise ValueError('基准 %s 的结构结果与已登记预期不符' % number)
             verify_signature_values(data, report)
+            verify_format_results(report)
             if path.read_bytes() != data:
                 raise ValueError('原件被修改')
-        print('本地 %s 个 OFD 基准的原件、既有属性、页面关联及完整签名内容回归通过。' % len(manifest['samples']))
+        print('本地 %s 个 OFD 基准的原件、既有属性、页面关联、完整签名与新增格式诊断回归通过。' % len(manifest['samples']))
         return 0
     except (OSError, ValueError, KeyError) as exc:
         # 不输出证书、正文或完整报告；缺失不能当成跳过后的通过。

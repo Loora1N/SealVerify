@@ -11,6 +11,7 @@ from zipfile import BadZipFile, ZipFile
 from defusedxml import ElementTree as ET
 
 from .asn1 import Decoder, binary, root
+from .format import check_signature_format
 
 
 NS = '{http://www.ofdspec.org/2016}'
@@ -177,7 +178,12 @@ class Inspection:
             seal = child(child(info, 'Seal'), 'BaseLoc')
             if seal is not None:
                 parse_resource('external_seal', seal, lambda data, loc: self.decoder.seal(root(data), loc))
-            parse_resource('signed_value', child(element, 'SignedValue'), self.decoder.signature)
+            def signed_value(data, location):
+                signature['format_validation'] = check_signature_format(data, location, key)
+                return self.decoder.signature(data, location)
+            parse_resource('signed_value', child(element, 'SignedValue'), signed_value)
+        if 'format_validation' not in signature:
+            signature['format_validation'] = check_signature_format(None, source or index_path, key)
         signature['issues'] = self.issues[start:].copy()
         signature['parse_status'] = 'partial' if self.issue_count > issue_start else 'parsed'
         return signature
@@ -264,13 +270,25 @@ class Inspection:
         return output
 
 
+def format_summary(output):
+    reports = [sig['format_validation'] for doc in output['documents'] for sig in doc['signatures']]
+    counts = Counter(report['overall_status'] for report in reports)
+    status = 'failed' if counts['failed'] else ('incomplete' if not reports or counts['incomplete'] or output['issues'] else 'passed')
+    output['format_validation'] = {'stage': 'signature_data_format', 'overall_status': status,
+        'signatures_checked': len(reports), 'by_status': dict(counts),
+        'cryptographic_verification': 'not_performed', 'continuation': 'collect_all',
+        'message': '仅完成当前支持范围的格式诊断，完整符合性及密码验证仍需后续检查。' if reports else
+                   '未获得可检查的签章；无签章或读取失败均不能形成验证通过结论。'}
+    return output
+
+
 def inspect_ofd(data: bytes) -> dict:
     """返回只读结构清单；任何解析状态都不代表验签通过。"""
     output = {'schema_version': 1, 'verification': 'not_performed', 'documents': [], 'issues': []}
     if len(data) > MAX_FILE_BYTES:
         output['issues'].append({'code': 'container_error', 'location': 'OFD', 'message': '文件超过 256 MiB 上限。'})
         output['parse_status'] = 'error'
-        return output
+        return format_summary(output)
     output['source'] = binary(data)
     try:
         with ZipFile(BytesIO(data)) as archive:
@@ -295,4 +313,4 @@ def inspect_ofd(data: bytes) -> dict:
     except (BadZipFile, ValueError, OSError) as exc:
         output['issues'].append({'code': 'container_error', 'location': 'OFD', 'message': str(exc)[:1000]})
     output['parse_status'] = 'error' if not output['documents'] else ('partial' if output['issues'] else 'parsed')
-    return output
+    return format_summary(output)
