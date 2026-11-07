@@ -25,6 +25,7 @@ for (const [number, sample] of manifest.samples.entries()) {
     for (let index = 0; index < expected.pages.length; index++) {
       await page.evaluate(n => window.sealverifyReader.goToPage(n, { smooth: false }), index + 1);
       await expect.poll(() => page.locator('.ofd-page').nth(index).locator('canvas').evaluate(canvas => {
+        if (!canvas.width || !canvas.height) return 0; // 画布初始化后再读取像素，poll 仍要求实际绘制。
         const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
         let ink = 0;
         for (let i = 0; i < pixels.length; i += 16) if (pixels[i + 3] > 100 && pixels[i] + pixels[i + 1] + pixels[i + 2] < 650) ink++;
@@ -35,6 +36,12 @@ for (const [number, sample] of manifest.samples.entries()) {
       await page.getByRole('combobox', { name: '选择签章' }).selectOption(String(index));
       // 断言值来自私有清单，不写入公开源码或截图。
       await expect(page.locator('#signature-content')).toContainText(sig.signed_value.signer_certificate.subject);
+      const format = page.locator('.format-validation');
+      await expect(format).toHaveAttribute('data-format-status', 'incomplete');
+      await expect(format.locator('[data-check-status="failed"], [data-check-status="error"], [data-check-status="skipped"]')).toHaveCount(0);
+      await expect(format.locator('[data-check-status="indeterminate"]')).toHaveCount(2);
+      await expect(format.locator('[data-check-id="property_scope"]')).toContainText('保护范围');
+      await expect(format.locator('[data-check-id="referenced_profiles"]')).toContainText('完整配置约束');
       const stamp = sig.placements[0];
       await page.getByRole('button', { name: `定位第 ${stamp.page_number} 页 · 标记 1` }).click();
       await expect(page.locator('.signature-highlight')).toBeVisible();

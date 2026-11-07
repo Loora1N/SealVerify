@@ -64,6 +64,33 @@ function section(title, content, open = false) {
   details.open = open; details.append(element('summary', title), content); return details;
 }
 
+function formatSection(report) {
+  const names = { passed: '通过', failed: '失败', indeterminate: '无法确定', skipped: '跳过', error: '错误', not_applicable: '不适用' };
+  const wrapper = element('div', undefined, 'format-validation');
+  if (!report) { wrapper.append(element('p', '未获得格式检查结果。', 'error')); return wrapper; }
+  wrapper.dataset.formatStatus = report.overall_status;
+  const counts = report.summary.by_status;
+  const state = report.overall_status === 'failed' ? '发现格式错误' : report.overall_status === 'passed' ? '已检查项通过' : '部分项目需复核';
+  wrapper.append(element('p', `格式检查：${state}`, 'format-summary'),
+    element('p', `通过 ${counts.passed} · 失败 ${counts.failed} · 无法确定 ${counts.indeterminate} · 跳过 ${counts.skipped} · 错误 ${counts.error} · 不适用 ${counts.not_applicable}`),
+    element('p', '发现问题后继续独立检查；以下是第一步的格式诊断，密码验签及完整验证尚未完成。', 'muted'));
+  const labels = new Map(report.planned_checks.map(item => [item.check_id, item.label]));
+  const problems = element('ol', undefined, 'format-checks'), others = element('ol', undefined, 'format-checks');
+  for (const check of report.checks) {
+    const row = element('li'); row.dataset.checkStatus = check.status; row.dataset.checkId = check.check_id;
+    row.append(element('strong', `${names[check.status] || check.status} · ${labels.get(check.check_id) || check.check_id}`),
+      element('p', check.message), element('code', check.location || check.check_id));
+    if (check.expected) row.append(element('p', `预期：${check.expected}`));
+    if (check.actual) row.append(element('p', `实际：${check.actual}`));
+    if (check.standard_reference) row.append(element('p', `依据：${check.standard_reference}`, 'muted'));
+    if (check.remediation) row.append(element('p', check.remediation, 'muted'));
+    (['passed', 'not_applicable'].includes(check.status) ? others : problems).append(row);
+  }
+  if (problems.children.length) wrapper.append(problems);
+  wrapper.append(section('查看通过与不适用项目', others));
+  return section('第一步：电子签章数据格式验证', wrapper, true);
+}
+
 export function signaturePanel(viewer) {
   const panel = document.querySelector('#signature-panel');
   const button = document.querySelector('#signatures-toggle');
@@ -114,7 +141,7 @@ export function signaturePanel(viewer) {
       placements.append(element('p', `页面 ID ${stamp.page_id || '?'}；位置（毫米）${stamp.boundary_mm?.join(', ') || '不可读'}${stamp.clip_mm ? '；裁剪 ' + stamp.clip_mm.join(', ') : ''}`));
     }
     if (!sig.placements.length) placements.append(element('p', '未提供可定位的 StampAnnot。'));
-    content.append(overview, placements);
+    content.append(overview, placements, formatSection(sig.format_validation));
     if (value) {
       const { seal, ...signature } = value;
       content.append(section('电子签章属性与签章者证书', tree(signature)));

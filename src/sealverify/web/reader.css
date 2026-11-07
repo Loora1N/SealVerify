@@ -36,6 +36,12 @@ main { flex: 1; position: relative; min-height: 0; display: flex; }
 .signature-value { border: 1px solid #dbe3eb; background: #f8fafc; border-radius: 6px; padding: 10px; margin: 6px 0 12px; }
 .signature-value p { margin: 4px 0 8px; }
 .signature-hex { display: block; font: 12px/1.7 Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
+.format-summary { font-weight: 600; }
+.format-checks { padding-left: 20px; }
+.format-checks li { border-left: 3px solid #d6a02b; padding: 8px; margin: 12px 0; background: #fffaf0; }
+.format-checks li[data-check-status="failed"], .format-checks li[data-check-status="error"] { border-color: #b13b32; background: #fff3f1; }
+.format-checks li[data-check-status="passed"], .format-checks li[data-check-status="not_applicable"] { border-color: #b9c9cf; background: #f8fafc; }
+.format-checks p { margin: 5px 0; }
 @media print { #signature-panel, .signature-highlight { display: none !important; } }
 .empty { position: absolute; inset: 70px 0 0; background: #edf1f5; display: flex; align-items: center; justify-content: center; flex-direction: column; pointer-events: none; }
 .paper-icon { border: 2px solid #8dabb1; border-radius: 8px; width: 76px; height: 96px; display: grid; place-items: center; font-weight: 700; letter-spacing: 3px; color: #175c63; background: white; box-shadow: 8px 8px 0 #dfe7eb; }
