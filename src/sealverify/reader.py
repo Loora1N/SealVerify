@@ -133,6 +133,37 @@ class ReaderHandler(BaseHTTPRequestHandler):
         resource = self._resource()
         if resource is None:
             return
+        if resource == "inspect":
+            # 此接口只处理用户所选的字节，不接受路径，也不保存文件。
+            if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1:
+                self._send(411)
+                return
+            try:
+                size = int(self.headers['Content-Length'])
+            except ValueError:
+                self._send(400)
+                return
+            if not 0 <= size <= MAX_FILE_BYTES:
+                self._send(413)
+                return
+            if self.headers.get_content_type() not in ('application/ofd', 'application/octet-stream'):
+                self._send(415)
+                return
+            self.connection.settimeout(30)
+            try:
+                data = self.rfile.read(size)
+                if len(data) != size:
+                    self._send(400)
+                    return
+                from .inspection import inspect_ofd
+                payload = json.dumps(inspect_ofd(data), ensure_ascii=False).encode('utf-8')
+                if len(payload) > 32 * 1024 * 1024:
+                    self._send(422, '解析清单超过 32 MiB 展示上限。'.encode('utf-8'))
+                    return
+                self._send(200, payload, 'application/json; charset=utf-8')
+            except (TimeoutError, ConnectionError):
+                self._send(408)
+            return
         if resource != "shutdown":
             self._send(405)
             return

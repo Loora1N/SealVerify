@@ -15,8 +15,28 @@ nav button:disabled { opacity: .45; cursor: default; }
 .privacy { margin-left: auto; color: #5c6f7b; }
 #documents { max-width: 250px; padding: 3px; color: inherit; }
 .error { color: #b12f36; }
-main { flex: 1; position: relative; min-height: 0; }
-#viewer { height: 100%; }
+main { flex: 1; position: relative; min-height: 0; display: flex; }
+#viewer { height: 100%; flex: 1; min-width: 0; }
+#signature-panel { width: 385px; max-width: 48vw; flex-shrink: 0; padding: 16px; overflow: auto; background: #fff; border-left: 1px solid #dbe3eb; font-size: 12px; overflow-wrap: anywhere; }
+#signature-panel h2 { margin: 0 0 12px; font-size: 18px; }
+.inspection-notice { background: #fff5e6; color: #805513; padding: 10px; line-height: 1.7; border-radius: 6px; }
+#signatures { width: 100%; padding: 8px; margin-bottom: 10px; }
+.signature-section { margin: 12px 0; border-top: 1px solid #e2e8ef; padding-top: 10px; }
+.signature-section summary { cursor: pointer; font-weight: 600; line-height: 1.6; }
+.property-list { margin: 8px 0; }
+.property-list dt { color: #65748a; margin-top: 8px; }
+.property-list dd { margin: 2px 0 0 10px; line-height: 1.6; }
+.property-list .property-list { border-left: 2px solid #edf1f5; padding-left: 8px; }
+.seal-preview { max-width: 160px; max-height: 160px; object-fit: contain; display: block; margin: 16px auto; }
+.signature-locations button { border: 1px solid #175c63; color: #175c63; background: #edf5f5; padding: 7px 10px; border-radius: 5px; cursor: pointer; }
+.signature-locations button:disabled { opacity: .45; cursor: default; }
+.signature-highlight { position: absolute; z-index: 20; border: 3px solid #e79300; background: #ffd57235; outline: 2px solid #fff; pointer-events: none; }
+.inspection-issues { padding-left: 18px; color: #805513; }
+.inspection-issues li { margin: 8px 0; }
+.signature-value { border: 1px solid #dbe3eb; background: #f8fafc; border-radius: 6px; padding: 10px; margin: 6px 0 12px; }
+.signature-value p { margin: 4px 0 8px; }
+.signature-hex { display: block; font: 12px/1.7 Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
+@media print { #signature-panel, .signature-highlight { display: none !important; } }
 .empty { position: absolute; inset: 70px 0 0; background: #edf1f5; display: flex; align-items: center; justify-content: center; flex-direction: column; pointer-events: none; }
 .paper-icon { border: 2px solid #8dabb1; border-radius: 8px; width: 76px; height: 96px; display: grid; place-items: center; font-weight: 700; letter-spacing: 3px; color: #175c63; background: white; box-shadow: 8px 8px 0 #dfe7eb; }
 h1 { font-size: 24px; font-weight: 600; margin: 28px 0 4px; }

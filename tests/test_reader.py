@@ -65,6 +65,23 @@ class ReaderServerTests(unittest.TestCase):
             self.request('upload', data=b'private')
         self.assertEqual(error.exception.code, 405)
 
+    def test_inspection_endpoint_returns_json_without_persisting_input(self):
+        with self.request('inspect', data=self.document, headers={'Content-Type': 'application/ofd'}) as response:
+            report = json.load(response)
+        self.assertEqual(report['parse_status'], 'parsed')
+        self.assertEqual(report['verification'], 'not_performed')
+        self.assertEqual(len(report['documents'][0]['pages']), 4)
+        self.assertEqual(self.server.document, self.document)
+
+    def test_inspection_refuses_foreign_origin_size_and_type(self):
+        for headers, expected in [({'Content-Type': 'text/plain'}, 415),
+                                  ({'Content-Type': 'application/ofd', 'Origin': 'https://example.com'}, 403),
+                                  ({'Content-Type': 'application/ofd', 'Content-Length': '999999999'}, 413),
+                                  ({'Content-Type': 'application/ofd', 'Content-Length': 'bad'}, 400)]:
+            with self.subTest(headers=headers), self.assertRaises(HTTPError) as error:
+                self.request('inspect', data=b'bad', headers=headers)
+            self.assertEqual(error.exception.code, expected)
+
     def test_shutdown_releases_server_loop(self):
         with self.request('shutdown', data=b'') as response:
             self.assertEqual(response.status, 200)

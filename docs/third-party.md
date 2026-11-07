@@ -7,6 +7,8 @@
 | OFDRW UI、engine、crypto | `@ofdrw/ofdrw-viewer-*` 0.1.7，来自 npm；[源码](https://github.com/ofdrw/ofdrw-viewer) | MIT，声明与实际打包的传递依赖见下方文件 |
 | fflate 及其他传递依赖 | 具体版本与完整性哈希记录在 `frontend/package-lock.json` | 构建脚本根据实际 bundle 输入收集声明 |
 | Noto Sans CJK SC Regular | [noto-cjk](https://github.com/notofonts/noto-cjk)，提交 `f8d157532fbfaeda587e826d4cd5b21a49186f7c` 的 `Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf` | SIL OFL 1.1，保留原始字体文件和授权 |
+| asn1crypto | Python 1.5.1；[源码](https://github.com/wbond/asn1crypto) | MIT，由 pip 安装的分发包保留 LICENSE；用于 ASN.1 / X.509 / CMS 元数据解码 |
+| defusedxml | Python 0.7.1；[源码](https://github.com/tiran/defusedxml) | PSF License，由 pip 安装的分发包保留 LICENSE；禁用 XML DTD、实体与外部资源 |
 
 - [JavaScript 第三方声明](../src/sealverify/web/vendor/THIRD_PARTY_NOTICES.txt)
 - [字体授权](../src/sealverify/web/fonts/OFL.txt)
