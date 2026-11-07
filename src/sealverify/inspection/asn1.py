@@ -8,6 +8,12 @@ from typing import Callable
 from asn1crypto import core, x509, cms, tsp
 
 
+SM2_SM3 = '1.2.156.10197.1.501'
+# RFC 8017 A.2.3 / A.2.4：按签名算法 OID 分派，不用证书主体公钥算法猜测。
+RSA_SIGNATURE_OIDS = {'1.2.840.113549.1.1.' + str(i) for i in (2, 4, 5, 10, 11, 12, 13, 14, 15, 16)}
+MAX_SIGNATURE_BYTES = 64 * 1024
+
+
 def binary(data: bytes) -> dict:
     return {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
             "hex_preview": data[:64].hex(), "truncated": len(data) > 64}
@@ -109,6 +115,50 @@ class Decoder:
             self.issue("asn1_field", location, str(exc))
             return None
 
+    def signature_value(self, data, algorithm, location):
+        """保留 v1 摘要契约供回归；界面仅使用新增 decoded 的完整签名内容。"""
+        result = binary(data)
+        decoded = {'algorithm_oid': algorithm, 'algorithm': 'SM2' if algorithm == SM2_SM3 else
+                   ('RSA' if algorithm in RSA_SIGNATURE_OIDS else '未知算法'),
+                   'status': 'decoded', 'verification': 'not_performed'}
+        result['decoded'] = decoded
+        if len(data) > MAX_SIGNATURE_BYTES:
+            decoded.update(status='unavailable', message='签名值超过 64 KiB 展示上限，未展示；未截断为预览。')
+            self.issue('signature_size_limit', location, decoded['message'])
+            return result
+        if not data:
+            decoded.update(status='error', message='签名值为空。')
+            self.issue('signature_encoding', location, decoded['message'])
+            return result
+        if algorithm == SM2_SM3:
+            try:
+                pair = sequence(root(data), 2, 2)
+                values = []
+                for name, node in zip(('r', 's'), pair):
+                    raw = node.content
+                    if node.tag != 2 or not raw or raw[0] & 128:
+                        raise ValueError(name + ' 必须是非负 ASN.1 INTEGER')
+                    if len(raw) > 1 and raw[0] == 0 and not raw[1] & 128:
+                        raise ValueError(name + ' 包含多余的 INTEGER 前导零')
+                    # DER 正号补零不属于数值，显示为完整的 32 字节大端无符号整数。
+                    value = raw[1:] if len(raw) > 1 and raw[0] == 0 else raw
+                    if len(value) > 32:
+                        raise ValueError(name + ' 超过 256 位，无法按 SM2 曲线参数展示')
+                    values.append(value.rjust(32, b'\x00').hex())
+                decoded.update(encoding='ASN.1 DER SEQUENCE { r INTEGER, s INTEGER }',
+                               r_hex=values[0], s_hex=values[1])
+            except (ValueError, TypeError) as exc:
+                decoded.update(status='error', message='SM2 签名值不能按 DER 拆分：' + str(exc),
+                               signature_hex=data.hex())
+                self.issue('signature_encoding', location, decoded['message'])
+        else:
+            # RSA 是签名字节串；即使恰好以 30 开头，也不能把它当 DER 解码。
+            decoded.update(encoding='原始签名字节串', signature_hex=data.hex())
+            if algorithm not in RSA_SIGNATURE_OIDS:
+                decoded.update(status='unsupported', message='尚不支持按此签名算法拆分，显示完整原始字节。')
+                self.issue('signature_algorithm_unsupported', location, decoded['message'])
+        return result
+
     def certificate(self, data, location):
         result = {"data": binary(data), "verification": "not_performed"}
         def read():
@@ -132,6 +182,9 @@ class Decoder:
         }
         for key, getter in getters.items():
             result[key] = self.field(location + "/" + key, getter)
+        result['certificate_signature'] = self.field(location + '/signatureValue', lambda:
+            self.signature_value(bits(sequence(root(data), 3, 3)[2]), result['signature_algorithm'],
+                                 location + '/signatureValue'))
         return result
 
     def extensions(self, node, location, tagged=False):
@@ -220,7 +273,8 @@ class Decoder:
                         output['extensions'] = self.field(location + '/extensions', lambda: self.extensions(info[4], location + '/extensions'))
         output['maker_certificate'] = self.field(location + '/cert', lambda: self.certificate(octets(fields[1]), location + '/cert'))
         output['algorithm'] = self.field(location + '/signAlgID', lambda: scalar(fields[2], core.ObjectIdentifier))
-        output['signature'] = self.field(location + '/signedValue', lambda: binary(bits(fields[3])))
+        output['signature'] = self.field(location + '/signedValue', lambda:
+            self.signature_value(bits(fields[3]), output['algorithm'], location + '/signedValue'))
         return output
 
     def timestamp(self, data, location):
@@ -266,7 +320,8 @@ class Decoder:
                 output['extensions'] = self.field(location + '/extDatas', lambda: self.extensions(tbs[5], location + '/extDatas', True))
         output['signer_certificate'] = self.field(location + '/cert', lambda: self.certificate(octets(fields[1]), location + '/cert'))
         output['algorithm'] = self.field(location + '/signatureAlgID', lambda: scalar(fields[2], core.ObjectIdentifier))
-        output['signature'] = self.field(location + '/signature', lambda: binary(bits(fields[3])))
+        output['signature'] = self.field(location + '/signature', lambda:
+            self.signature_value(bits(fields[3]), output['algorithm'], location + '/signature'))
         output['timestamp'] = None
         if len(fields) == 5:
             def stamp():

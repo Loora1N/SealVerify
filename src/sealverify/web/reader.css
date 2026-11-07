@@ -33,6 +33,9 @@ main { flex: 1; position: relative; min-height: 0; display: flex; }
 .signature-highlight { position: absolute; z-index: 20; border: 3px solid #e79300; background: #ffd57235; outline: 2px solid #fff; pointer-events: none; }
 .inspection-issues { padding-left: 18px; color: #805513; }
 .inspection-issues li { margin: 8px 0; }
+.signature-value { border: 1px solid #dbe3eb; background: #f8fafc; border-radius: 6px; padding: 10px; margin: 6px 0 12px; }
+.signature-value p { margin: 4px 0 8px; }
+.signature-hex { display: block; font: 12px/1.7 Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
 @media print { #signature-panel, .signature-highlight { display: none !important; } }
 .empty { position: absolute; inset: 70px 0 0; background: #edf1f5; display: flex; align-items: center; justify-content: center; flex-direction: column; pointer-events: none; }
 .paper-icon { border: 2px solid #8dabb1; border-radius: 8px; width: 76px; height: 96px; display: grid; place-items: center; font-weight: 700; letter-spacing: 3px; color: #175c63; background: white; box-shadow: 8px 8px 0 #dfe7eb; }

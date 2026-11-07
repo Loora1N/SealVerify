@@ -5,7 +5,7 @@ const labels = {
   cert_list_type: '授权证书列表类型', certificates: '印章授权证书', certificate_digests: '授权证书摘要',
   property: '印章属性', picture: '印章图像', width_mm: '宽度（毫米）', height_mm: '高度（毫米）',
   maker_certificate: '制章者证书', signer_certificate: '签章者证书', algorithm: '算法 OID',
-  signature: '签名值', declared_time: '声明的签章时间（未验证）', data_hash: '声明的原文杂凑',
+  signature: '签名值', certificate_signature: '证书签名值（颁发者签名）', declared_time: '声明的签章时间（未验证）', data_hash: '声明的原文杂凑',
   property_info: '原文属性（厂商声明，未解释保护范围）', extensions: '扩展数据', timestamp: '时间戳',
   data: '数据摘要', bytes: '字节数', sha256: 'SHA-256 摘要', hex_preview: '十六进制预览',
   truncated: '预览已截断', subject: '主体', issuer: '颁发者', serial_hex: '序列号（十六进制）',
@@ -28,6 +28,13 @@ function tree(value) {
   const list = element('dl', undefined, 'property-list');
   for (const [key, item] of Object.entries(value)) {
     if (key === 'preview') continue;
+    if (key === 'signature' || key === 'certificate_signature') {
+      const kind = key === 'certificate_signature' ? 'certificate' : 'maker_certificate' in value ? 'seal' : 'document';
+      const title = { certificate: '证书签名值（颁发者签名）', seal: '制章签名值', document: '电子签章签名值' }[kind];
+      list.append(element('dt', title));
+      const cell = element('dd'); cell.append(signatureValue(item, kind, title)); list.append(cell);
+      continue;
+    }
     list.append(element('dt', labels[key] || key));
     const cell = element('dd');
     cell.append(item && typeof item === 'object' && 'hex_preview' in item ? section(`${item.bytes} 字节 · 查看摘要`, tree(item)) : tree(item));
@@ -35,6 +42,22 @@ function tree(value) {
   }
   if (!Object.keys(value).length) list.append(element('dd', '无'));
   return list;
+}
+function signatureValue(value, kind, title) {
+  const card = element('div', undefined, 'signature-value');
+  card.dataset.signatureKind = kind; card.setAttribute('role', 'group'); card.setAttribute('aria-label', title);
+  const decoded = value?.decoded;
+  if (!decoded) { card.append(element('p', '签名值无法解析，请查看问题记录。', 'error')); return card; }
+  card.append(element('p', `${decoded.algorithm} · ${decoded.algorithm_oid || '算法 OID 缺失'}`),
+    element('p', `${value.bytes} 字节 · 未验证`, 'muted'));
+  if (decoded.message) card.append(element('p', decoded.message, 'error'));
+  for (const [key, label] of [['r_hex', 'r（十六进制，32 字节）'], ['s_hex', 's（十六进制，32 字节）'],
+    ['signature_hex', '完整签名值（十六进制）']]) {
+    if (decoded[key] === undefined) continue;
+    const code = element('code', decoded[key], 'signature-hex'); code.dataset.component = key;
+    card.append(element('p', label), code);
+  }
+  return card;
 }
 function section(title, content, open = false) {
   const details = element('details', undefined, 'signature-section');

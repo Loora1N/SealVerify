@@ -73,6 +73,15 @@ TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
 ALG = '1.2.156.10197.1.501'
 
 
+class IntegerPair(core.Sequence):
+    _fields = [('r', core.Integer), ('s', core.Integer)]
+
+
+def sm2_value(number=1):
+    # 仅结构样例：r 需要 DER 正号补零，s 是短整数；未计算真实签名。
+    return IntegerPair({'r': (1 << 255) + number, 's': number + 1}).dump()
+
+
 def certificate(name):
     return x509.Certificate({
         'tbs_certificate': {'version': 'v3', 'serial_number': 1001,
@@ -100,7 +109,7 @@ def timestamp():
     })}).dump()
 
 
-def signature(number=1, *, digest_list=False, with_timestamp=False, bad_certificate=False):
+def signature(number=1, *, digest_list=False, with_timestamp=False, bad_certificate=False, rsa=False):
     signer = certificate('Synthetic signer %s' % number)
     certs = DigestList([{'type': 'SHA256', 'value': hashlib.sha256(signer).digest()}]) if digest_list else CertList([signer])
     extension = [{'oid': '1.2.3.4.5', 'critical': False, 'value': b'synthetic extension'}]
@@ -110,17 +119,21 @@ def signature(number=1, *, digest_list=False, with_timestamp=False, bad_certific
                      'cert_type': 2 if digest_list else 1, 'certs': certs,
                      'created': TIME, 'start': TIME, 'end': datetime(2030, 1, 1, tzinfo=timezone.utc)},
         'picture': {'type': 'PNG', 'data': png(), 'width': 40, 'height': 25}, 'extensions': extension},
-        'cert': certificate('Synthetic maker'), 'algorithm': ALG, 'signature': b'FAKE seal signature'})
+        'cert': certificate('Synthetic maker'), 'algorithm': ALG, 'signature': sm2_value(number + 10)})
     value = Signature({'tbs': {'version': 4, 'seal': seal, 'time': TIME,
         'hash': bytes(32), 'property': 'synthetic coverage declaration', 'extensions': extension},
         'cert': b'broken certificate' if bad_certificate else signer, 'algorithm': ALG,
-        'signature': b'FAKE document signature'})
+        'signature': sm2_value(number)})
+    if rsa:
+        # 特意保留前导 00 和末尾 ff，便于验收完整字节展示。
+        value['algorithm'] = '1.2.840.113549.1.1.11'
+        value['signature'] = bytes(range(256))
     if with_timestamp:
         value['timestamp'] = timestamp()
     return value
 
 
-def build_signed_demo(*, broken=False, multiple_documents=False):
+def build_signed_demo(*, broken=False, multiple_documents=False, rsa=False):
     with ZipFile(BytesIO(build_demo(multiple_documents=multiple_documents))) as archive:
         entries = {name: archive.read(name) for name in archive.namelist()}
     ofd = entries['OFD.xml'].decode('utf-8')
@@ -135,12 +148,12 @@ def build_signed_demo(*, broken=False, multiple_documents=False):
         for index in range(2 if doc == 0 else 1):
             folder = base + 'Sign_%s/' % index
             sigs += '<ofd:Signature ID="%s" Type="Seal" BaseLoc="Sign_%s/Signature.xml"/>' % (index + 1, index)
-            value = signature(index + 1, with_timestamp=index == 1)
+            value = signature(index + 1, with_timestamp=index == 1, rsa=rsa)
             entries[folder + 'Seal.esl'] = value['tbs']['seal'].dump()
             entries[folder + 'SignedValue.dat'] = b'bad ASN.1' if broken and index == 0 else value.dump()
             page = '900' if doc else ('10' if index == 0 else '13')
             entries[folder + 'Signature.xml'] = (f'<ofd:Signature {NS}><ofd:SignedInfo>'
-                f'<ofd:Provider ProviderName="Synthetic" Version="1"/><ofd:SignatureMethod>{ALG}</ofd:SignatureMethod>'
+                f'<ofd:Provider ProviderName="Synthetic" Version="1"/><ofd:SignatureMethod>{value["algorithm"].native}</ofd:SignatureMethod>'
                 '<ofd:SignatureDateTime>2026-01-01T00:00:00Z</ofd:SignatureDateTime>'
                 '<ofd:References CheckMethod="1.2.156.10197.1.401"><ofd:Reference FileRef="/OFD.xml">'
                 '<ofd:CheckValue>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</ofd:CheckValue></ofd:Reference></ofd:References>'
@@ -161,7 +174,8 @@ if __name__ == '__main__':
     parser.add_argument('output', type=Path)
     parser.add_argument('--broken', action='store_true')
     parser.add_argument('--multiple-documents', action='store_true')
+    parser.add_argument('--rsa', action='store_true', help='电子签章使用 RSA 算法标识和合成字节串')
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(build_signed_demo(broken=args.broken, multiple_documents=args.multiple_documents))
+    args.output.write_bytes(build_signed_demo(broken=args.broken, multiple_documents=args.multiple_documents, rsa=args.rsa))
     print('已生成结构测试样例（签名和证书不可用于验签）。')

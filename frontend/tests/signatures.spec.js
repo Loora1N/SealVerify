@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 const fixture = name => path.join(root, 'local-data/browser-fixtures', name + '.ofd');
 test.beforeAll(() => {
-  for (const [name, flags] of [['signed', []], ['signed-broken', ['--broken']], ['signed-multi', ['--multiple-documents']]]) {
+  for (const [name, flags] of [['signed', []], ['signed-broken', ['--broken']], ['signed-multi', ['--multiple-documents']], ['signed-rsa', ['--rsa']]]) {
     execFileSync(python, ['examples/create_signed_demo.py', fixture(name), ...flags], { cwd: root });
   }
 });
@@ -96,4 +96,41 @@ test('签章面板伸缩和连续切换文件不误报渲染取消', async ({ pa
   await page.getByText('正在打开文档…', { exact: true }).waitFor({ state: 'hidden' });
   await expect(page.locator('#messages')).not.toContainText('渲染已取消');
   await expect(page.locator('#messages')).not.toContainText('字体批量加载失败');
+});
+
+test('SM2 完整 r/s 和证书签名分开展示，签名卡片没有摘要或截断预览', async ({ page }) => {
+  await page.locator('#file').setInputFiles(fixture('signed'));
+  await expect(page.locator('#signature-status')).toContainText('2 个签章');
+  await page.getByText('电子签章属性与签章者证书', { exact: true }).click();
+  const documentSignature = page.locator('[data-signature-kind="document"]');
+  await expect(documentSignature.locator('[data-component="r_hex"]')).toHaveText('80' + '00'.repeat(30) + '01');
+  await expect(documentSignature.locator('[data-component="s_hex"]')).toHaveText('00'.repeat(31) + '02');
+  await expect(documentSignature).toBeVisible();
+  await page.getByText('内嵌电子印章与制章者证书', { exact: true }).click();
+  await expect(page.locator('[data-signature-kind="seal"]').first().locator('[data-component="s_hex"]')).toHaveText('00'.repeat(31) + '0c');
+  const certificates = page.locator('[data-signature-kind="certificate"]');
+  await expect(certificates).toHaveCount(5);
+  for (const card of await page.locator('.signature-value').all()) {
+    await expect(card).not.toContainText('SHA-256');
+    await expect(card).not.toContainText('十六进制预览');
+    await expect(card).not.toContainText('预览已截断');
+    await expect(card).toContainText('未验证');
+  }
+  await documentSignature.scrollIntoViewIfNeeded();
+  await page.getByText('正在打开文档…', { exact: true }).waitFor({ state: 'hidden' });
+  await page.screenshot({ path: path.join(root, 'local-data/signature-value-sm2.png') });
+});
+
+test('RSA 签名完整显示 256 字节，保留前导 00 和尾部 ff', async ({ page }) => {
+  await page.locator('#file').setInputFiles(fixture('signed-rsa'));
+  await expect(page.locator('#signature-status')).toContainText('2 个签章');
+  await page.getByText('电子签章属性与签章者证书', { exact: true }).click();
+  const card = page.locator('[data-signature-kind="document"]');
+  await expect(card).toContainText('RSA');
+  await expect(card.locator('[data-component="signature_hex"]')).toHaveText(Buffer.from(Array.from({ length: 256 }, (_, i) => i)).toString('hex'));
+  await expect(card.locator('[data-component="r_hex"]')).toHaveCount(0);
+  await expect(card).not.toContainText('SHA-256');
+  await card.scrollIntoViewIfNeeded();
+  await page.getByText('正在打开文档…', { exact: true }).waitFor({ state: 'hidden' });
+  await page.screenshot({ path: path.join(root, 'local-data/signature-value-rsa.png') });
 });
