@@ -27,15 +27,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     inspect.add_argument('file', type=Path, help='本地 OFD 文件')
     check_format = commands.add_parser('check-format', help='逐项诊断电子签章数据格式，错误记录后继续检查')
     check_format.add_argument('file', type=Path, help='本地 OFD 文件')
+    check_seal = commands.add_parser('check-seal-format', help='检查 OFD 内嵌/外置印章格式，或独立印章 DER')
+    check_seal.add_argument('file', type=Path, help='本地 OFD 或印章 DER 文件')
+    check_seal.add_argument('--seal', action='store_true', help='将输入作为独立 SESeal DER（如 .esl）检查')
     args = parser.parse_args(argv)
-    if args.command in ('inspect', 'check-format'):
+    if args.command in ('inspect', 'check-format', 'check-seal-format'):
         from .inspection import inspect_ofd, MAX_FILE_BYTES
         try:
             with args.file.open('rb') as stream:
-                report = inspect_ofd(stream.read(MAX_FILE_BYTES + 1))
+                if args.command == 'check-seal-format' and args.seal:
+                    from .inspection.format import check_seal_format
+                    report = check_seal_format(stream.read(16 * 1024 * 1024 + 1), args.file.name)
+                else:
+                    report = inspect_ofd(stream.read(MAX_FILE_BYTES + 1))
             print(json.dumps(report, ensure_ascii=False, indent=2))
             if args.command == 'check-format':
-                return 0 if report['format_validation']['overall_status'] == 'passed' else 1
+                return 0 if all(report[k]['overall_status'] == 'passed' for k in ('format_validation', 'seal_format_validation')) else 1
+            if args.command == 'check-seal-format':
+                result = report if args.seal else report['seal_format_validation']
+                return 0 if result['overall_status'] == 'passed' else 1
             return 0 if report['parse_status'] == 'parsed' else 1
         except OSError as exc:
             print('无法读取文件：' + str(exc), file=sys.stderr)

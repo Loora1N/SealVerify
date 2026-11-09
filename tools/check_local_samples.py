@@ -89,7 +89,7 @@ def verify_format_results(report):
     """新增格式诊断的独立预期；不修改既有业务清单。"""
     count = 0
     required = {'container', 'version_match', 'cert/certificate', 'signatureAlgID/key_match',
-                'signatureValue/encoding', 'sm3_length', 'toSign/eseal/cert/certificate'}
+                'signatureValue/encoding', 'sm3_length'}
     for doc in report['documents']:
         for sig in doc['signatures']:
             value = sig['format_validation']
@@ -98,10 +98,26 @@ def verify_format_results(report):
                 raise ValueError('基准格式诊断状态或检查完整性改变')
             if any(item['status'] in ('failed', 'error', 'skipped') for item in checks.values()):
                 raise ValueError('基准新增格式错误、检查异常或跳过')
-            if {key for key, item in checks.items() if item['status'] == 'indeterminate'} != {'property_scope', 'referenced_profiles'}:
+            if {key for key, item in checks.items() if item['status'] == 'indeterminate'} != {'property_scope'}:
                 raise ValueError('基准格式待复核范围改变')
             if not required <= checks.keys() or any(checks[key]['status'] != 'passed' for key in required):
                 raise ValueError('基准必要格式检查未通过或缺失')
+            seals = sig['seal_format_validation']
+            for role in ('embedded', 'external'):
+                seal = seals[role]
+                if role == 'external' and seal['applicability'] == 'absent':
+                    if seal['overall_status'] != 'not_applicable':
+                        raise ValueError('外置印章缺席状态不符')
+                    continue
+                rows = {c['check_id']: c for c in seal['checks']}
+                needed = {'container', 'eSealInfo/header/id_value', 'eSealInfo/header/version_value',
+                          'eSealInfo/property/certList', 'eSealInfo/picture/image',
+                          'cert/certificate', 'signAlgID/key_match', 'signedValue/encoding'}
+                if (seal['checked_status'] != 'passed' or seal['overall_status'] != 'incomplete'
+                        or seal['summary']['missing'] or seal['coverage']['complete']
+                        or not needed <= rows.keys()
+                        or any(c['status'] not in ('passed', 'not_applicable') for c in rows.values())):
+                    raise ValueError('基准印章格式检查缺失、失败或待复核范围改变')
             count += 1
     if not count or report['format_validation']['signatures_checked'] != count:
         raise ValueError('基准格式检查遗漏签章')

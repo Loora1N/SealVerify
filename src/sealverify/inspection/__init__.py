@@ -11,7 +11,7 @@ from zipfile import BadZipFile, ZipFile
 from defusedxml import ElementTree as ET
 
 from .asn1 import Decoder, binary, root
-from .format import check_signature_format
+from .format import check_signature_formats, check_seal_format
 
 
 NS = '{http://www.ofdspec.org/2016}'
@@ -120,6 +120,8 @@ class Inspection:
         source = self.path(index_path, entry.get('BaseLoc', ''), index_path + '/Signature/@BaseLoc')
         signature['source_path'] = source
         element = self.attempt(source or index_path, lambda: self.xml(source, 'Signature')) if source else None
+        seal_reports = {}
+        external_absent = False
         if element is not None:
             info = child(element, 'SignedInfo')
             if info is None:
@@ -175,15 +177,23 @@ class Inspection:
                 signature[name + '_path'] = path
                 if path:
                     signature[name] = self.attempt(path, lambda: callback(self.read(path), path))
+            external_absent = info is not None and child(info, 'Seal') is None
             seal = child(child(info, 'Seal'), 'BaseLoc')
+            def external_seal(data, location):
+                seal_reports['external'] = check_seal_format(data, location, key + '/external')
+                return self.decoder.seal(root(data), location)
             if seal is not None:
-                parse_resource('external_seal', seal, lambda data, loc: self.decoder.seal(root(data), loc))
+                parse_resource('external_seal', seal, external_seal)
             def signed_value(data, location):
-                signature['format_validation'] = check_signature_format(data, location, key)
+                signature['format_validation'], seal_reports['embedded'] = check_signature_formats(data, location, key)
                 return self.decoder.signature(data, location)
             parse_resource('signed_value', child(element, 'SignedValue'), signed_value)
         if 'format_validation' not in signature:
-            signature['format_validation'] = check_signature_format(None, source or index_path, key)
+            signature['format_validation'], seal_reports['embedded'] = check_signature_formats(None, source or index_path, key)
+        if 'external' not in seal_reports:
+            seal_reports['external'] = check_seal_format(None, signature.get('external_seal_path') or source or index_path,
+                key + '/external', '外置印章引用或资源不可读取，未据此推断不存在。', absent=external_absent)
+        signature['seal_format_validation'] = seal_reports
         signature['issues'] = self.issues[start:].copy()
         signature['parse_status'] = 'partial' if self.issue_count > issue_start else 'parsed'
         return signature
@@ -279,6 +289,16 @@ def format_summary(output):
         'cryptographic_verification': 'not_performed', 'continuation': 'collect_all',
         'message': '仅完成当前支持范围的格式诊断，完整符合性及密码验证仍需后续检查。' if reports else
                    '未获得可检查的签章；无签章或读取失败均不能形成验证通过结论。'}
+    seals = [value for doc in output['documents'] for sig in doc['signatures']
+             for value in sig['seal_format_validation'].values()]
+    applicable = [r for r in seals if r['applicability'] != 'absent']
+    seal_counts = Counter(r['overall_status'] for r in seals)
+    output['seal_format_validation'] = {'stage': 'seal_data_format',
+        'overall_status': 'failed' if seal_counts['failed'] else 'incomplete',
+        'checked_status': 'failed' if any(r['checked_status'] == 'failed' for r in applicable) else
+            'passed' if applicable and not output['issues'] and all(r['checked_status'] == 'passed' for r in applicable) else 'incomplete',
+        'resources_reported': len(seals), 'by_status': dict(seal_counts),
+        'cryptographic_verification': 'not_performed', 'continuation': 'collect_all'}
     return output
 
 

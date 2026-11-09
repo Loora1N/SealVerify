@@ -11,7 +11,7 @@ from examples.create_signed_demo import signature, certificate, build_signed_dem
 from examples.create_reading_demo import build_demo
 from sealverify.cli import main
 from sealverify.inspection import inspect_ofd
-from sealverify.inspection.format import check_signature_format, frames, FormatChecker
+from sealverify.inspection.format import check_signature_format, check_signature_formats, frames, FormatChecker
 from tools.check_local_samples import verify_format_results
 from test_inspection import modify, VALUE_PATH, SIGNATURE_PATH
 
@@ -37,17 +37,19 @@ def replace_field(data, path, value):
 
 class FormatTests(unittest.TestCase):
     def check(self, raw=None):
-        report = check_signature_format(signature().dump() if raw is None else raw)
+        report, seal = check_signature_formats(signature().dump() if raw is None else raw)
         self.assertEqual(report['summary']['missing'], 0)
         self.assertEqual(report['summary']['planned'], report['summary']['reported'])
         self.assertEqual(report['cryptographic_verification'], 'not_performed')
-        return report, {item['check_id']: item for item in report['checks']}
+        checks = {item['check_id']: item for item in report['checks']}
+        checks.update({'seal/' + item['check_id']: item for item in seal['checks']})
+        return report, checks
 
     def test_valid_structure_keeps_manual_review_and_no_crypto_claim(self):
         report, checks = self.check()
         self.assertEqual(report['overall_status'], 'incomplete')
         self.assertEqual({key for key, c in checks.items() if c['status'] == 'indeterminate'},
-                         {'property_scope', 'referenced_profiles'})
+                         {'property_scope'})
         self.assertEqual(report['summary']['by_status']['failed'], 0)
         self.assertEqual(checks['signatureAlgID/key_match']['status'], 'passed')
         self.assertEqual(checks['timeStamp']['status'], 'not_applicable')
@@ -57,7 +59,7 @@ class FormatTests(unittest.TestCase):
         first, second = [s['format_validation'] for s in report['documents'][0]['signatures']]
         failed = {c['check_id'] for c in first['checks'] if c['status'] == 'failed'}
         self.assertTrue({'version_match', 'cert/certificate', 'sm3_length', 'signatureValue/encoding',
-                         'toSign/eseal/header/id_value', 'toSign/propertyInfo'} <= failed)
+                         'toSign/propertyInfo'} <= failed)
         self.assertEqual(next(c for c in first['checks'] if c['check_id'] == 'property_scope')['status'], 'skipped')
         self.assertEqual(second['summary']['by_status']['failed'], 0)
         self.assertEqual(report['format_validation']['signatures_checked'], 2)
@@ -66,10 +68,10 @@ class FormatTests(unittest.TestCase):
     def test_bad_nested_seal_does_not_hide_outer_certificate_and_signature(self):
         raw = replace_field(signature().dump(), [0, 1], b'\x30\x03\x02\x02\x01')
         _, checks = self.check(raw)
-        self.assertEqual(checks['toSign/eseal/structure']['status'], 'failed')
+        self.assertEqual(checks['seal/structure']['status'], 'failed')
         for key in ('toSign/timeInfo', 'cert/certificate', 'signatureValue/encoding'):
             self.assertEqual(checks[key]['status'], 'passed')
-        self.assertEqual(checks['toSign/eseal/extDatas']['status'], 'skipped')
+        self.assertEqual(checks['seal/eSealInfo/extDatas']['status'], 'skipped')
 
     def test_truncated_tbs_keeps_prefix_and_outer_independent_fields(self):
         raw = replace_field(signature().dump(), [0], tlv(48, b'\x02\x01\x04\x30\x05\x00'))
@@ -98,7 +100,7 @@ class FormatTests(unittest.TestCase):
         raw['tbs']['seal']['info']['header']['version'] = 3
         raw['tbs']['seal']['info']['header']['id'] = 'XX'
         _, checks = self.check(raw.dump())
-        for key in ('version_match', 'toSign/eseal/header/version_value', 'toSign/eseal/header/id_value'):
+        for key in ('version_match', 'seal/eSealInfo/header/version_value', 'seal/eSealInfo/header/id_value'):
             self.assertEqual(checks[key]['status'], 'failed')
 
     def test_der_time_calendar_timezone_precision(self):
@@ -119,17 +121,17 @@ class FormatTests(unittest.TestCase):
     def test_empty_list_and_unknown_choice_are_not_silently_accepted(self):
         raw = signature(); raw['tbs']['seal']['info']['property']['cert_type'] = 9
         _, checks = self.check(raw.dump())
-        self.assertEqual(checks['toSign/eseal/property/list_type']['status'], 'failed')
-        self.assertEqual(checks['toSign/eseal/property/certList/0']['status'], 'skipped')
+        self.assertEqual(checks['seal/eSealInfo/property/list_type']['status'], 'failed')
+        self.assertEqual(checks['seal/eSealInfo/property/certList/0']['status'], 'skipped')
         raw = replace_field(signature().dump(), [0, 1, 0, 2, 3], b'\x30\x00')
         _, checks = self.check(raw)
-        self.assertEqual(checks['toSign/eseal/property/certList']['status'], 'failed')
+        self.assertEqual(checks['seal/eSealInfo/property/certList']['status'], 'failed')
 
     def test_digest_choice_and_empty_optional_extensions(self):
         raw = signature(digest_list=True); raw['tbs']['extensions'] = Extensions([])
         report, checks = self.check(raw.dump())
         self.assertEqual(report['summary']['by_status']['failed'], 0)
-        self.assertEqual(checks['toSign/eseal/property/certList/0/type']['status'], 'passed')
+        self.assertEqual(checks['seal/eSealInfo/property/certList/0/type']['status'], 'passed')
         self.assertEqual(checks['toSign/extDatas/list']['status'], 'passed')
 
     def test_extensions_default_false_and_unknown_critical_semantics(self):
@@ -204,7 +206,7 @@ class FormatTests(unittest.TestCase):
     def test_internal_seal_checker_error_continues_outer_checks(self):
         with patch.object(FormatChecker, 'seal', side_effect=RuntimeError('synthetic bug')):
             _, checks = self.check()
-        self.assertEqual(checks['embedded_seal_error']['status'], 'error')
+        self.assertEqual(checks['seal/checker_error']['status'], 'error')
         self.assertEqual(checks['cert/certificate']['status'], 'passed')
         self.assertEqual(checks['signatureValue/encoding']['status'], 'passed')
 
@@ -234,7 +236,7 @@ class FormatTests(unittest.TestCase):
     def test_baseline_new_format_checks_cannot_be_dropped_or_changed(self):
         data = build_signed_demo(format_errors=True)
         raw = signature(); del raw['tbs']['extensions']; del raw['tbs']['seal']['info']['extensions']
-        data = modify(data, {VALUE_PATH: raw.dump()})
+        data = modify(data, {VALUE_PATH: raw.dump(), VALUE_PATH.replace('SignedValue.dat', 'Seal.esl'): raw['tbs']['seal'].dump()})
         report = inspect_ofd(data)
         self.assertEqual(verify_format_results(report), 2)
         changed = deepcopy(report)

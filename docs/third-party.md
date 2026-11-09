@@ -9,6 +9,7 @@
 | Noto Sans CJK SC Regular | [noto-cjk](https://github.com/notofonts/noto-cjk)，提交 `f8d157532fbfaeda587e826d4cd5b21a49186f7c` 的 `Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf` | SIL OFL 1.1，保留原始字体文件和授权 |
 | asn1crypto | Python 1.5.1；[源码](https://github.com/wbond/asn1crypto) | MIT，由 pip 安装的分发包保留 LICENSE；用于 ASN.1 / X.509 / CMS 元数据解码 |
 | defusedxml | Python 0.7.1；[源码](https://github.com/tiran/defusedxml) | PSF License，由 pip 安装的分发包保留 LICENSE；禁用 XML DTD、实体与外部资源 |
+| Pillow | Python `>=11.3,<14`，pip 按解释器选择兼容版本；[源码](https://github.com/python-pillow/Pillow) | MIT-CMU，由 pip 安装的分发包保留许可证及原生依赖声明；用于有界栅格图像解码，不打入浏览器 bundle |
 
 - [JavaScript 第三方声明](../src/sealverify/web/vendor/THIRD_PARTY_NOTICES.txt)
 - [字体授权](../src/sealverify/web/fonts/OFL.txt)

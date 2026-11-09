@@ -36,12 +36,18 @@ for (const [number, sample] of manifest.samples.entries()) {
       await page.getByRole('combobox', { name: '选择签章' }).selectOption(String(index));
       // 断言值来自私有清单，不写入公开源码或截图。
       await expect(page.locator('#signature-content')).toContainText(sig.signed_value.signer_certificate.subject);
-      const format = page.locator('.format-validation');
+      const format = page.locator('[data-format-role="signature"]');
       await expect(format).toHaveAttribute('data-format-status', 'incomplete');
       await expect(format.locator('[data-check-status="failed"], [data-check-status="error"], [data-check-status="skipped"]')).toHaveCount(0);
-      await expect(format.locator('[data-check-status="indeterminate"]')).toHaveCount(2);
+      await expect(format.locator('[data-check-status="indeterminate"]')).toHaveCount(1);
       await expect(format.locator('[data-check-id="property_scope"]')).toContainText('保护范围');
-      await expect(format.locator('[data-check-id="referenced_profiles"]')).toContainText('完整配置约束');
+      await expect(format.locator('[data-check-id="referenced_profiles"]')).toHaveCount(0);
+      for (const role of ['embedded', 'external']) {
+        const seal = page.locator(`[data-format-role="${role}"]`);
+        const state = parsed.documents[0].signatures[index].seal_format_validation[role].checked_status;
+        await expect(seal).toHaveAttribute('data-checked-status', state);
+        await expect(seal.locator('[data-check-status="failed"], [data-check-status="error"], [data-check-status="skipped"]')).toHaveCount(0);
+      }
       const stamp = sig.placements[0];
       await page.getByRole('button', { name: `定位第 ${stamp.page_number} 页 · 标记 1` }).click();
       await expect(page.locator('.signature-highlight')).toBeVisible();
