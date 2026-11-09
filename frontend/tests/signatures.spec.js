@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 const fixture = name => path.join(root, 'local-data/browser-fixtures', name + '.ofd');
 test.beforeAll(() => {
-  for (const [name, flags] of [['signed', []], ['signed-broken', ['--broken']], ['signed-multi', ['--multiple-documents']], ['signed-rsa', ['--rsa']], ['format-errors', ['--format-errors']]]) {
+  for (const [name, flags] of [['signed', []], ['signed-broken', ['--broken']], ['signed-multi', ['--multiple-documents']], ['signed-rsa', ['--rsa']], ['format-errors', ['--format-errors']], ['seal-errors', ['--seal-errors']]]) {
     execFileSync(python, ['examples/create_signed_demo.py', fixture(name), ...flags], { cwd: root });
   }
 });
@@ -137,17 +137,17 @@ test('RSA 签名完整显示 256 字节，保留前导 00 和尾部 ff', async (
 
 test('格式诊断同时列出多处错误，后续签章继续检查且不显示验签成功', async ({ page }) => {
   await page.locator('#file').setInputFiles(fixture('format-errors'));
-  const format = page.locator('.format-validation');
+  const format = page.locator('[data-format-role="signature"]');
   await expect(format).toHaveAttribute('data-format-status', 'failed');
-  await expect(format.locator('[data-check-status="failed"]')).toHaveCount(6);
+  await expect(format.locator('[data-check-status="failed"]')).toHaveCount(5);
   for (const id of ['version_match', 'cert/certificate', 'sm3_length', 'signatureValue/encoding']) {
     await expect(format.locator(`[data-check-id="${id}"]`)).toContainText('失败');
     await expect(format.locator(`[data-check-id="${id}"]`)).toContainText('GB/T 38540—2020');
   }
-  await page.getByText('查看通过与不适用项目', { exact: true }).click();
+  await format.getByText('查看通过与不适用项目', { exact: true }).click();
   await expect(format.locator('[data-check-id="toSign/timeInfo"]')).toBeVisible();
   await expect(format.locator('[data-check-id="toSign/timeInfo"]')).toContainText('通过');
-  await page.getByText('查看通过与不适用项目', { exact: true }).click();
+  await format.getByText('查看通过与不适用项目', { exact: true }).click();
   await page.getByRole('button', { name: '定位第 1 页 · 标记 1' }).click();
   await expect(page.locator('.signature-highlight')).toBeVisible();
   await page.getByText('正在打开文档…', { exact: true }).waitFor({ state: 'hidden' });
@@ -156,7 +156,7 @@ test('格式诊断同时列出多处错误，后续签章继续检查且不显�
   await page.getByRole('combobox', { name: '选择签章' }).selectOption('1');
   await expect(format).toHaveAttribute('data-format-status', 'incomplete');
   await expect(format.locator('[data-check-status="failed"]')).toHaveCount(0);
-  await expect(format.locator('[data-check-status="indeterminate"]')).toHaveCount(2);
+  await expect(format.locator('[data-check-status="indeterminate"]')).toHaveCount(1);
   await expect(format).toContainText('密码验签及完整验证尚未完成');
   await page.getByRole('button', { name: '定位第 4 页 · 标记 1' }).click();
   await expect(page.locator('.signature-highlight')).toHaveAttribute('data-page-number', '4');
@@ -164,12 +164,52 @@ test('格式诊断同时列出多处错误，后续签章继续检查且不显�
 
 test('无法解析的签章仍输出格式失败及跳过原因，不把未知时间戳当作未提供', async ({ page }) => {
   await page.locator('#file').setInputFiles(fixture('signed-broken'));
-  const format = page.locator('.format-validation');
+  const format = page.locator('[data-format-role="signature"]');
   await expect(format).toHaveAttribute('data-format-status', 'failed');
   await expect(format.locator('[data-check-id="container"]')).toContainText('失败');
   await expect(format.locator('[data-check-id="timeStamp"]')).toContainText('无法确定可选字段是否存在');
   await expect(format.locator('[data-check-id="timeStamp"]')).toHaveAttribute('data-check-status', 'skipped');
+  await expect(page.locator('[data-format-role="embedded"]')).toHaveAttribute('data-checked-status', 'incomplete');
+  await expect(page.locator('[data-format-role="external"]')).toHaveAttribute('data-checked-status', 'passed');
   await page.getByRole('combobox', { name: '选择签章' }).selectOption('1');
   await expect(format.locator('[data-check-id="timeStamp/container"]')).toContainText('缺少签名者信息');
   await expect(page.locator('#signature-content')).toContainText('Synthetic signer 2');
+});
+
+test('内嵌印章五处错误同时报告，外置与后续印章独立检查', async ({ page }) => {
+  await page.locator('#file').setInputFiles(fixture('seal-errors'));
+  const seal = page.locator('[data-format-role="embedded"]');
+  await expect(seal).toHaveAttribute('data-checked-status', 'failed');
+  await expect(seal.locator('[data-check-status="failed"]')).toHaveCount(5);
+  await expect(seal.locator('[data-check-id="signAlgID/key_match"]')).toHaveAttribute('data-check-status', 'skipped');
+  await expect(seal.locator('[data-check-id="eSealInfo/picture/image"]')).toContainText('图像数据损坏');
+  await expect(page.locator('[data-format-role="external"]')).toHaveAttribute('data-checked-status', 'passed');
+  await expect(page.locator('[data-format-role="signature"] [data-check-status="failed"]')).toHaveCount(0);
+  await seal.getByText('查看通过与不适用项目', { exact: true }).click();
+  await expect(seal.locator('[data-check-id="eSealInfo/property/validEnd"]')).toBeVisible();
+  await seal.getByText('查看通过与不适用项目', { exact: true }).click();
+  await page.getByText('第一步：电子签章数据格式验证', { exact: true }).click();
+  await page.getByRole('button', { name: '定位第 1 页 · 标记 1' }).click();
+  await page.getByText('正在打开文档…', { exact: true }).waitFor({ state: 'hidden' });
+  await page.getByText('第二步：电子印章数据格式验证', { exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(root, 'local-data/seal-format-errors.png') });
+  await page.getByRole('combobox', { name: '选择签章' }).selectOption('1');
+  await expect(seal).toHaveAttribute('data-checked-status', 'passed');
+  await expect(seal.locator('[data-check-status="failed"], [data-check-status="skipped"]')).toHaveCount(0);
+  await page.getByRole('button', { name: '定位第 4 页 · 标记 1' }).click();
+  await expect(page.locator('.signature-highlight')).toHaveAttribute('data-page-number', '4');
+});
+
+test('工具覆盖范围独立说明，不伪装成文件字段错误或完整通过', async ({ page }) => {
+  await page.locator('#file').setInputFiles(fixture('signed'));
+  const seal = page.locator('[data-format-role="embedded"]');
+  await expect(seal).toHaveAttribute('data-format-status', 'incomplete');
+  await expect(seal).toHaveAttribute('data-checked-status', 'passed');
+  await expect(seal).toContainText('已检查项通过');
+  await expect(page.locator('[data-check-id="referenced_profiles"]')).toHaveCount(0);
+  await expect(seal.locator('[data-check-status="indeterminate"]')).toHaveCount(0);
+  await seal.getByText('检查能力与未覆盖范围', { exact: true }).click();
+  await expect(seal.locator('.format-coverage')).toBeVisible();
+  await expect(seal.locator('.format-coverage')).toContainText('不是检测出的文件错误');
+  await expect(seal.locator('.format-coverage')).toContainText('完整符合性尚未确认');
 });

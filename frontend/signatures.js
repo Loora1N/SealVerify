@@ -64,16 +64,24 @@ function section(title, content, open = false) {
   details.open = open; details.append(element('summary', title), content); return details;
 }
 
-function formatSection(report) {
+function formatSection(report, title = '第一步：电子签章数据格式验证', role = 'signature') {
   const names = { passed: '通过', failed: '失败', indeterminate: '无法确定', skipped: '跳过', error: '错误', not_applicable: '不适用' };
   const wrapper = element('div', undefined, 'format-validation');
   if (!report) { wrapper.append(element('p', '未获得格式检查结果。', 'error')); return wrapper; }
   wrapper.dataset.formatStatus = report.overall_status;
+  wrapper.dataset.formatRole = role;
+  wrapper.dataset.checkedStatus = report.checked_status;
   const counts = report.summary.by_status;
-  const state = report.overall_status === 'failed' ? '发现格式错误' : report.overall_status === 'passed' ? '已检查项通过' : '部分项目需复核';
+  const state = report.checked_status === 'failed' ? '发现格式错误' : report.checked_status === 'passed' ? '已检查项通过' : report.checked_status === 'not_applicable' ? '未声明外置印章（不适用）' : '部分项目需复核';
   wrapper.append(element('p', `格式检查：${state}`, 'format-summary'),
     element('p', `通过 ${counts.passed} · 失败 ${counts.failed} · 无法确定 ${counts.indeterminate} · 跳过 ${counts.skipped} · 错误 ${counts.error} · 不适用 ${counts.not_applicable}`),
-    element('p', '发现问题后继续独立检查；以下是第一步的格式诊断，密码验签及完整验证尚未完成。', 'muted'));
+    element('p', '发现问题后继续独立检查；密码验签及完整验证尚未完成。', 'muted'));
+  if (report.coverage?.limitations?.length) {
+    const notes = element('div', undefined, 'format-coverage');
+    notes.append(element('p', '检查能力说明：完整符合性尚未确认。以下是工具的覆盖范围，不是检测出的文件错误。'));
+    for (const note of report.coverage.limitations) notes.append(element('p', note));
+    wrapper.append(section('检查能力与未覆盖范围', notes));
+  }
   const labels = new Map(report.planned_checks.map(item => [item.check_id, item.label]));
   const problems = element('ol', undefined, 'format-checks'), others = element('ol', undefined, 'format-checks');
   for (const check of report.checks) {
@@ -88,7 +96,7 @@ function formatSection(report) {
   }
   if (problems.children.length) wrapper.append(problems);
   wrapper.append(section('查看通过与不适用项目', others));
-  return section('第一步：电子签章数据格式验证', wrapper, true);
+  return section(title, wrapper, true);
 }
 
 export function signaturePanel(viewer) {
@@ -142,6 +150,11 @@ export function signaturePanel(viewer) {
     }
     if (!sig.placements.length) placements.append(element('p', '未提供可定位的 StampAnnot。'));
     content.append(overview, placements, formatSection(sig.format_validation));
+    const seals = element('div');
+    seals.append(element('p', '依据 GB/T 38540—2020 6.1、6.3 a)。内嵌与外置资源分别检查；未验证二者相等或密码有效性。', 'muted'),
+      formatSection(sig.seal_format_validation?.embedded, '签章内嵌电子印章', 'embedded'),
+      formatSection(sig.seal_format_validation?.external, 'OFD 外置电子印章', 'external'));
+    content.append(section('第二步：电子印章数据格式验证', seals, true));
     if (value) {
       const { seal, ...signature } = value;
       content.append(section('电子签章属性与签章者证书', tree(signature)));

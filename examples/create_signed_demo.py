@@ -139,7 +139,7 @@ def signature(number=1, *, digest_list=False, with_timestamp=False, bad_certific
     return value
 
 
-def build_signed_demo(*, broken=False, multiple_documents=False, rsa=False, format_errors=False):
+def build_signed_demo(*, broken=False, multiple_documents=False, rsa=False, format_errors=False, seal_errors=False):
     with ZipFile(BytesIO(build_demo(multiple_documents=multiple_documents))) as archive:
         entries = {name: archive.read(name) for name in archive.namelist()}
     ofd = entries['OFD.xml'].decode('utf-8')
@@ -154,7 +154,7 @@ def build_signed_demo(*, broken=False, multiple_documents=False, rsa=False, form
         for index in range(2 if doc == 0 else 1):
             folder = base + 'Sign_%s/' % index
             sigs += '<ofd:Signature ID="%s" Type="Seal" BaseLoc="Sign_%s/Signature.xml"/>' % (index + 1, index)
-            value = signature(index + 1, with_timestamp=index == 1 and not format_errors, rsa=rsa)
+            value = signature(index + 1, with_timestamp=index == 1 and not (format_errors or seal_errors), rsa=rsa)
             if format_errors and index == 0:
                 value['tbs']['version'] = 3
                 value['tbs']['seal']['info']['header']['id'] = 'BAD'
@@ -162,7 +162,15 @@ def build_signed_demo(*, broken=False, multiple_documents=False, rsa=False, form
                 value['tbs']['property'] = ''
                 value['cert'] = b'broken certificate'
                 value['signature'] = b'broken SM2 encoding'
+            # 外置资源先保留正常格式，用于证明坏内嵌印章不阻断独立外置检查。
             entries[folder + 'Seal.esl'] = value['tbs']['seal'].dump()
+            if seal_errors and index == 0:
+                seal = value['tbs']['seal']
+                seal['info']['header']['id'] = 'BAD'
+                seal['info']['property']['cert_type'] = 9
+                seal['info']['picture']['data'] = b'broken PNG'
+                seal['cert'] = b'broken maker certificate'
+                seal['signature'] = b'broken SM2 encoding'
             entries[folder + 'SignedValue.dat'] = b'bad ASN.1' if broken and index == 0 else value.dump()
             page = '900' if doc else ('10' if index == 0 else '13')
             entries[folder + 'Signature.xml'] = (f'<ofd:Signature {NS}><ofd:SignedInfo>'
@@ -189,8 +197,9 @@ if __name__ == '__main__':
     parser.add_argument('--multiple-documents', action='store_true')
     parser.add_argument('--rsa', action='store_true', help='电子签章使用 RSA 算法标识和合成字节串')
     parser.add_argument('--format-errors', action='store_true', help='首个签章含多处格式错误，后续签章仍可检查')
+    parser.add_argument('--seal-errors', action='store_true', help='首个内嵌印章含多处格式错误；外置资源与后续印章保持可检查')
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(build_signed_demo(broken=args.broken, multiple_documents=args.multiple_documents,
-                                            rsa=args.rsa, format_errors=args.format_errors))
+                                            rsa=args.rsa, format_errors=args.format_errors, seal_errors=args.seal_errors))
     print('已生成结构测试样例（签名和证书不可用于验签）。')

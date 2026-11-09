@@ -13,6 +13,8 @@
 
 自 0.4.0 起，同次读取另行执行[电子签章数据格式诊断](signature-format.md)，界面显示“第一步：电子签章数据格式验证”。新增的 `format_validation` 与原有 `parse_status`、`verification` 独立；格式错误不使读取过程提前结束，密码验证状态仍为 `not_performed`。
 
+0.5.0 将内嵌印章的详细格式检查移至独立的[第二步电子印章数据格式检查](seal-format.md)，并检查外置印章。每签章新增 `seal_format_validation.embedded/external`，包级新增对应汇总；第一步保留签章结构与版本一致性。通用能力限制改放 `coverage`，不再作为 `referenced_profiles` 文件问题；`checked_status` 与完整符合性状态分别表达。
+
 ## 签名值展示
 
 电子签章签名、制章签名和证书颁发者签名分别显示，避免把印章或签章自身的签名误认为证书签名。签章者、制章者及印章授权列表内的每张可读证书均包含独立的“证书签名值（颁发者签名）”。

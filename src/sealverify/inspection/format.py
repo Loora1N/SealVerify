@@ -2,8 +2,13 @@
 
 import re
 from collections import Counter
+from io import BytesIO
+import warnings
 
 from asn1crypto import core, x509, cms, tsp
+from defusedxml import ElementTree as SafeET
+from defusedxml.common import DefusedXmlException
+from PIL import Image
 
 from ..results import CheckResult, CheckSpec, CheckStatus, VerificationReport
 from .asn1 import Node, SM2_SM3, RSA_SIGNATURE_OIDS, Decoder
@@ -32,18 +37,18 @@ def frames(data):
         if tag & 31 == 31:
             raise LimitError('暂不支持 ASN.1 高编号标签')
         if length & 128:
-            count = length & 127
-            if count == 0:
+            length_size = length & 127
+            if length_size == 0:
                 raise ValueError('DER 不允许不定长编码')
-            if count > 4:
+            if length_size > 4:
                 raise LimitError('DER 长度超过实现限额')
-            encoded = data[offset:offset + count]
-            if len(encoded) != count:
+            encoded = data[offset:offset + length_size]
+            if len(encoded) != length_size:
                 raise ValueError('DER 长度截断')
             length = int.from_bytes(encoded, 'big')
             if encoded[0] == 0 or length < 128:
                 raise ValueError('DER 长度不是最短编码')
-            offset += count
+            offset += length_size
         end = offset + length
         if end > len(data):
             raise ValueError('DER 内容截断，后续字段边界无法确定')
@@ -116,8 +121,10 @@ class FormatChecker:
         self.limited = False
         self.readable = set()
         self.omitted = Counter()
+        self.embedded_seal_report = None
 
     def record(self, path, label, status, message, reference, expected=None, actual=None):
+        path = path.strip('/')
         if len(self.results) >= MAX_CHECKS:
             self.limited = True
             self.omitted[status] += 1
@@ -242,15 +249,17 @@ class FormatChecker:
         node = self.optional(node, path, reference, tagged, known)
         if node is None:
             return
+        items = []
         def read():
             if node.tag != 48:
                 raise ValueError('ExtensionDatas 应为 SEQUENCE OF')
-            items = list(frames(node.content))
-            if len(items) > 128:
-                raise LimitError('扩展超过 128 项检查上限')
-            return items
-        items = self.run(path + '/list', '扩展列表', reference, read)
-        for i, item in enumerate(items or []):
+            for item in frames(node.content):
+                if len(items) >= 128:
+                    raise LimitError('扩展超过 128 项检查上限；仅检查可定位的前 128 项')
+                items.append(item)
+            return True
+        self.run(path + '/list', '扩展列表', reference, read)
+        for i, item in enumerate(items):
             loc = path + '/' + str(i)
             # critical 在中间且有 DEFAULT，不能将省略的 BOOLEAN 当成缺少字段。
             def parts():
@@ -313,31 +322,33 @@ class FormatChecker:
     def seal(self, node, path):
         s = self.fields(node, path, ('eSealInfo', 'cert', 'signAlgID', 'signedValue'), '6.1.1')
         info = self.fields(s['eSealInfo'], path + '/eSealInfo', ('header', 'esID', 'property', 'picture', 'extDatas'), '6.1.2.1', ('extDatas',))
-        hpath = path + '/header'
+        hpath = path + '/eSealInfo/header'
         h = self.fields(info['header'], hpath, ('ID', 'version', 'Vid'), '6.1.2.2')
         id_value = self.value(h['ID'], hpath + '/ID', core.IA5String, '6.1.2.2')
         ver = self.value(h['version'], hpath + '/version', core.Integer, '6.1.2.2')
         self.value(h['Vid'], hpath + '/Vid', core.IA5String, '6.1.2.2')
         self.rule(hpath + '/id_value', '印章头标识', '6.1.2.2', id_value == 'ES', 'ID = ES', id_value is not None, repr(id_value)[:128])
         self.rule(hpath + '/version_value', '印章版本', '6.1.2.2', ver == 4, 'version = 4', ver is not None, str(ver))
-        self.value(info['esID'], path + '/esID', core.IA5String, '6.1.2.3')
-        ppath = path + '/property'
+        self.value(info['esID'], path + '/eSealInfo/esID', core.IA5String, '6.1.2.3')
+        ppath = path + '/eSealInfo/property'
         p = self.fields(info['property'], ppath, ('type', 'name', 'certListType', 'certList', 'createDate', 'validStart', 'validEnd'), '6.1.2.4')
         self.value(p['type'], ppath + '/type', core.Integer, '6.1.2.4')
         self.value(p['name'], ppath + '/name', core.UTF8String, '6.1.2.4')
         kind = self.value(p['certListType'], ppath + '/certListType', core.Integer, '6.1.2.4')
         self.rule(ppath + '/list_type', '证书列表类型', '6.1.2.4', kind in (1, 2), 'certListType = 1 或 2', kind is not None, str(kind))
+        items = []
         def entries():
             if p['certList'].tag != 48:
                 raise ValueError('证书列表应为 SEQUENCE OF')
-            items = list(frames(p['certList'].content))
+            for item in frames(p['certList'].content):
+                if len(items) >= 64:
+                    raise LimitError('授权证书列表超过 64 项检查上限；仅检查可定位的前 64 项')
+                items.append(item)
             if not items:
                 raise ValueError('证书或证书杂凑列表至少包含一项')
-            if len(items) > 64:
-                raise LimitError('授权证书列表超过 64 项检查上限')
-            return items
-        items = self.run(ppath + '/certList', '授权证书列表', '6.1.2.4', entries, dependency=p['certList'] is not None)
-        for i, item in enumerate(items or []):
+            return True
+        self.run(ppath + '/certList', '授权证书列表', '6.1.2.4', entries, dependency=p['certList'] is not None)
+        for i, item in enumerate(items):
             loc = ppath + '/certList/' + str(i)
             if kind == 1:
                 self.certificate(item, loc, '6.1.2.4')
@@ -349,11 +360,15 @@ class FormatChecker:
                 self.record(loc, '授权列表条目', 'skipped', '列表类型不可用，未猜测 CHOICE 分支。', '6.1.2.4')
         for name in ('createDate', 'validStart', 'validEnd'):
             self.value(p[name], ppath + '/' + name, core.GeneralizedTime, '6.1.2.4')
-        ipath = path + '/picture'
+        ipath = path + '/eSealInfo/picture'
         pic = self.fields(info['picture'], ipath, ('type', 'data', 'width', 'height'), '6.1.2.5')
-        for name, cls in [('type', core.IA5String), ('data', core.OctetString), ('width', core.Integer), ('height', core.Integer)]:
+        kind = self.value(pic['type'], ipath + '/type', core.IA5String, '6.1.2.5', True)
+        data = self.value(pic['data'], ipath + '/data', core.OctetString, '6.1.2.5', True)
+        self.run(ipath + '/image', '图像格式声明与数据可解码性', '6.1.2.5',
+                 lambda: image_format(kind, data), dependency=kind is not None and data is not None)
+        for name, cls in [('width', core.Integer), ('height', core.Integer)]:
             self.value(pic[name], ipath + '/' + name, cls, '6.1.2.5')
-        self.extensions(info['extDatas'], path + '/extDatas', '6.1.2.6', known=path + '/eSealInfo' in self.readable)
+        self.extensions(info['extDatas'], path + '/eSealInfo/extDatas', '6.1.2.6', known=path + '/eSealInfo' in self.readable)
         key = self.certificate(s['cert'], path + '/cert', '6.1.3')
         oid = self.algorithm(s['signAlgID'], key, path + '/signAlgID', '6.1.4')
         self.signature_bytes(s['signedValue'], oid, path + '/signedValue', '6.1.5')
@@ -374,12 +389,12 @@ class FormatChecker:
         s = self.fields(node, 'signature', ('toSign', 'cert', 'signatureAlgID', 'signature', 'timeStamp'), '7.1.1', ('timeStamp',))
         t = self.fields(s['toSign'], 'toSign', ('version', 'eseal', 'timeInfo', 'dataHash', 'propertyInfo', 'extDatas'), '7.1.2', ('extDatas',))
         ver = self.value(t['version'], 'toSign/version', core.Integer, '7.1.2')
-        try:
-            seal_version = self.seal(t['eseal'], 'toSign/eseal')
-        except Exception as exc:
-            self.record('embedded_seal_error', '内嵌印章格式检查', 'error',
-                        '检查器异常：' + type(exc).__name__ + '；签章其他字段继续检查。', '6.1、7.3 a)')
-            seal_version = None
+        self.rule('toSign/eseal/type', '内嵌印章字段类型', '7.1.2、6.1.1',
+                  t['eseal'] is not None and t['eseal'].tag == 48, 'SESeal SEQUENCE', t['eseal'] is not None)
+        self.embedded_seal_report = check_seal_format(t['eseal'].raw if t['eseal'] else None,
+            self.location + '/toSign/eseal', self.object_id + '/embedded',
+            '签章的内嵌印章字段缺失或无法安全定位，见第一步格式检查。')
+        seal_version = self.embedded_seal_report['header_version']
         self.rule('version_match', '签章与印章版本一致', '7.1.2、6.1.2.2', ver == seal_version == 4,
                   '签章版本 = 内嵌印章版本 = 4', ver is not None and seal_version is not None,
                   '签章版本 %s，内嵌印章版本 %s' % (ver, seal_version))
@@ -420,11 +435,8 @@ class FormatChecker:
                     raise ValueError('时间戳 SignedData 缺少签名者信息')
                 return True
             self.run('timeStamp/container', '时间戳 DER/CMS/TSTInfo 容器', '7.1.6', timestamp, dependency=raw is not None)
-        self.record('referenced_profiles', '引用标准及应用语义的完整符合性', 'indeterminate',
-                    '本步检查可读结构；GB/T 20518、20520、33560、35276 的完整配置约束及图像/扩展业务语义尚未全部实现，需要复核。',
-                    '6.1、7.1.3–7.1.6')
 
-    def report(self):
+    def report(self, stage='signature_data_format'):
         if self.limited:
             self.plan.append(CheckSpec(self.object_id, 'check_limit', '检查记录上限'))
             status = CheckStatus.FAILED if self.omitted['failed'] else CheckStatus.INDETERMINATE
@@ -433,12 +445,20 @@ class FormatChecker:
                 (MAX_CHECKS, sum(self.omitted.values()), self.omitted['failed'], self.omitted['error'])))
         report = VerificationReport(self.location, tuple(self.plan), tuple(self.results)).to_dict()
         report.pop('generated_at')
-        report.update(stage='signature_data_format', standard=STANDARD, continuation='collect_all',
+        report.update(stage=stage, standard=STANDARD, continuation='collect_all',
                       cryptographic_verification='not_performed', omitted_checks=dict(self.omitted))
+        report['checked_status'] = report['overall_status']
+        report['coverage'] = {'complete': False, 'limitations': [
+            'GB/T 20518、33560、35276 的完整配置约束尚未全部实现；当前证书、算法和签名检查限于列出的结构及声明。',
+            '自定义扩展、印章名称登记信息、图像业务语义及图像文件规范未作完整核验；未执行密码验签、证书信任/吊销及有效期检查。'
+            if stage == 'seal_data_format' else
+            'GB/T 20520 时间戳完整配置及厂商保护范围语义尚未全部实现；内嵌印章的详细检查见第二步。']}
+        if report['overall_status'] == 'passed':
+            report['overall_status'] = 'incomplete'
         return report
 
 
-def check_signature_format(data, location='SignedValue', object_id='signature', unavailable=None):
+def check_signature_formats(data, location='SignedValue', object_id='signature', unavailable=None):
     checker = FormatChecker(location, object_id)
     if data is None:
         checker.record('resource', '签章数据可读取性', 'indeterminate',
@@ -448,4 +468,88 @@ def check_signature_format(data, location='SignedValue', object_id='signature', 
     except Exception as exc:
         checker.record('checker_error', '格式检查器', 'error',
                        '格式检查器异常：' + type(exc).__name__ + '；其他签章继续检查。', '7.3 a)')
-    return checker.report()
+    seal = checker.embedded_seal_report or check_seal_format(None, location + '/toSign/eseal', object_id + '/embedded')
+    return checker.report(), seal
+
+
+def check_signature_format(data, location='SignedValue', object_id='signature', unavailable=None):
+    """第一步结果；需要内嵌印章的独立结果时使用 check_signature_formats。"""
+    return check_signature_formats(data, location, object_id, unavailable)[0]
+
+
+def check_seal_format(data, location='SESeal', object_id='seal', unavailable=None, absent=False):
+    """GB/T 38540—2020 6.3 a)：只诊断格式，失败后继续独立字段。"""
+    checker = FormatChecker(location, object_id)
+    version = None
+    if absent:
+        checker.record('resource', '外置印章资源', 'not_applicable',
+                       'OFD 未声明独立外置印章；内嵌印章仍单独检查。', '6.1')
+    else:
+        if data is None:
+            checker.record('resource', '印章数据可读取性', 'indeterminate',
+                           unavailable or '未获得印章数据，无法完成格式检查。', '6.3 a)')
+        top = []
+        def read():
+            if len(data) > 16 * 1024 * 1024:
+                raise LimitError('印章数据超过 16 MiB 检查上限')
+            top.extend(frames(data))
+            if len(top) != 1 or top[0].tag != 48:
+                raise ValueError('SESeal 必须为单一 DER SEQUENCE，不能有尾随内容')
+            return True
+        checker.run('container', '电子印章 DER 容器', '6.1.1、6.3 a)', read, dependency=data is not None)
+        try:
+            version = checker.seal(top[0] if top and top[0].tag == 48 else None, '')
+        except Exception as exc:
+            checker.record('checker_error', '印章格式检查器', 'error',
+                           '检查器异常：' + type(exc).__name__ + '；其他资源继续检查。', '6.3 a)')
+    report = checker.report('seal_data_format')
+    report.update(header_version=version, applicability='absent' if absent else 'present' if data is not None else 'unavailable')
+    if absent:
+        report.update(overall_status='not_applicable', checked_status='not_applicable')
+        report['coverage'] = {'complete': False, 'limitations': []}
+    return report
+
+
+def image_format(kind, data):
+    """有界解码，不渲染 SVG、不访问外部资源，不把显示毫米尺寸当成像素尺寸。"""
+    if len(data) > 4 * 1024 * 1024:
+        raise LimitError('图像超过 4 MiB 检查上限')
+    kind = kind.upper()
+    if kind == 'SVG':
+        try:
+            node = SafeET.fromstring(data, forbid_dtd=True, forbid_entities=True, forbid_external=True)
+        except DefusedXmlException:
+            raise LimitError('SVG 含 DTD 或实体声明，未执行解析或外部引用') from None
+        except SafeET.ParseError:
+            raise ValueError('SVG XML 结构无法解码') from None
+        if node.tag != '{http://www.w3.org/2000/svg}svg':
+            raise ValueError('图像声明 SVG，但根元素不是 SVG 命名空间中的 svg')
+        raise LimitError('SVG XML 根结构可读；未实现完整 SVG 图形及外部引用语义检查')
+    expected = {'PNG': 'PNG', 'JPG': 'JPEG', 'JPEG': 'JPEG', 'GIF': 'GIF', 'BMP': 'BMP'}.get(kind)
+    if expected is None:
+        raise LimitError('图像类型不在当前 PNG/JPG/JPEG/GIF/BMP/SVG 支持范围；标准示例不是封闭枚举')
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', Image.DecompressionBombWarning)
+            with Image.open(BytesIO(data), formats=['PNG', 'JPEG', 'GIF', 'BMP']) as img:
+                if img.format != expected:
+                    raise ValueError('图像数据格式 %s 与声明 %s 不一致' % (img.format, kind))
+                if img.width * img.height > 4_000_000:
+                    raise LimitError('图像超过 400 万像素检查上限')
+                img.verify()
+            with Image.open(BytesIO(data), formats=[expected]) as img:
+                total = 0
+                for index in range(17):
+                    try:
+                        img.seek(index)
+                    except EOFError:
+                        break
+                    total += img.width * img.height
+                    if index == 16 or img.width * img.height > 4_000_000 or total > 16_000_000:
+                        raise LimitError('图像超过 16 帧或累计 1600 万像素检查上限')
+                    img.load()
+    except (Image.DecompressionBombWarning, Image.DecompressionBombError):
+        raise LimitError('图像触发解码器的像素资源限额') from None
+    except (OSError, SyntaxError):
+        raise ValueError('图像数据损坏、截断或无法按支持的格式解码') from None
+    return True
