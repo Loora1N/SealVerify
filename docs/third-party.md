@@ -1,4 +1,4 @@
-# 第三方阅读资源
+# 第三方运行依赖与阅读资源
 
 项目自身的许可证尚未选定。以下声明适用于随阅读器分发的第三方部分，不代表其作者为本项目背书。
 
@@ -10,6 +10,8 @@
 | asn1crypto | Python 1.5.1；[源码](https://github.com/wbond/asn1crypto) | MIT，由 pip 安装的分发包保留 LICENSE；用于 ASN.1 / X.509 / CMS 元数据解码 |
 | defusedxml | Python 0.7.1；[源码](https://github.com/tiran/defusedxml) | PSF License，由 pip 安装的分发包保留 LICENSE；禁用 XML DTD、实体与外部资源 |
 | Pillow | Python `>=11.3,<14`，pip 按解释器选择兼容版本；[源码](https://github.com/python-pillow/Pillow) | MIT-CMU，由 pip 安装的分发包保留许可证及原生依赖声明；用于有界栅格图像解码，不打入浏览器 bundle |
+| gmalg | Python 1.1.2；[源码](https://github.com/ww-rm/gmalg) | MIT，分发包 `licenses/LICENSE`；用于 SM2 公钥验证、验签及 SM3 回退，测试生成器另用临时内存密钥 |
+| cryptography | Python `>=45,<50`；[源码](https://github.com/pyca/cryptography) | Apache-2.0 OR BSD-3-Clause；分发包保留 LICENSE、LICENSE.APACHE、LICENSE.BSD，用于 RSA PKCS #1 v1.5 验签；原生传递依赖随 pip 分发 |
 
 - [JavaScript 第三方声明](../src/sealverify/web/vendor/THIRD_PARTY_NOTICES.txt)
 - [字体授权](../src/sealverify/web/fonts/OFL.txt)

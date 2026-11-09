@@ -137,7 +137,7 @@ test('外部来源查询参数不被加载，阅读不产生验签通过状态',
   await openDemo(page);
   expect(external).toBe(false);
   expect(await page.evaluate(() => window.sealverifyReader.isFeatureEnabled('verification'))).toBe(false);
-  await expect(page.getByText('本机阅读 · 签章尚未验证')).toBeVisible();
+  await expect(page.getByText('本机处理 · 完整验证尚未完成')).toBeVisible();
 });
 
 test('拖放 OFD 并退出阅读器', async ({ page }) => {

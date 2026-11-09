@@ -133,7 +133,7 @@ class ReaderHandler(BaseHTTPRequestHandler):
         resource = self._resource()
         if resource is None:
             return
-        if resource == "inspect":
+        if resource in ("inspect", "verify"):
             # 此接口只处理用户所选的字节，不接受路径，也不保存文件。
             if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1:
                 self._send(411)
@@ -155,8 +155,21 @@ class ReaderHandler(BaseHTTPRequestHandler):
                 if len(data) != size:
                     self._send(400)
                     return
-                from .inspection import inspect_ofd
-                payload = json.dumps(inspect_ofd(data), ensure_ascii=False).encode('utf-8')
+                if resource == 'verify':
+                    from .crypto import DEFAULT_SM2_ID
+                    from .verification import verify_ofd
+                    try:
+                        uid = bytes.fromhex(self.headers.get('X-Sealverify-SM2-ID', DEFAULT_SM2_ID.hex()))
+                        if not 1 <= len(uid) <= 8191:
+                            raise ValueError('SM2 ID length')
+                    except ValueError:
+                        self._send(400, 'SM2 用户标识需要 1–8191 字节的十六进制编码。'.encode('utf-8'))
+                        return
+                    report = verify_ofd(data, sm2_id=uid)
+                else:
+                    from .inspection import inspect_ofd
+                    report = inspect_ofd(data)
+                payload = json.dumps(report, ensure_ascii=False).encode('utf-8')
                 if len(payload) > 32 * 1024 * 1024:
                     self._send(422, '解析清单超过 32 MiB 展示上限。'.encode('utf-8'))
                     return
