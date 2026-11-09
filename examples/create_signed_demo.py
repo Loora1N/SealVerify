@@ -82,7 +82,14 @@ def sm2_value(number=1):
     return IntegerPair({'r': (1 << 255) + number, 's': number + 1}).dump()
 
 
-def certificate(name):
+def certificate(name, *, sm2=False):
+    public_key = keys.PublicKeyInfo({'algorithm': {'algorithm': 'rsa'},
+        'public_key': keys.RSAPublicKey({'modulus': 3233, 'public_exponent': 17})})
+    if sm2:
+        # 仅算法声明与编码样例，点字节是合成数据，未声称曲线点或证书有效。
+        public_key = keys.PublicKeyInfo({'algorithm': {'algorithm': 'ec',
+            'parameters': keys.ECDomainParameters(name='named', value='1.2.156.10197.1.301')},
+            'public_key': b'\x04' + bytes(range(64))})
     return x509.Certificate({
         'tbs_certificate': {'version': 'v3', 'serial_number': 1001,
             'signature': {'algorithm': 'sha256_rsa'},
@@ -90,8 +97,7 @@ def certificate(name):
             'subject': x509.Name.build({'common_name': name}),
             'validity': {'not_before': x509.Time({'utc_time': TIME}),
                          'not_after': x509.Time({'utc_time': datetime(2030, 1, 1, tzinfo=timezone.utc)})},
-            'subject_public_key_info': keys.PublicKeyInfo({'algorithm': {'algorithm': 'rsa'},
-                'public_key': keys.RSAPublicKey({'modulus': 3233, 'public_exponent': 17})}),
+            'subject_public_key_info': public_key,
             'extensions': [x509.Extension({'extn_id': 'basic_constraints', 'critical': True,
                                           'extn_value': x509.BasicConstraints({'ca': False})})]},
         'signature_algorithm': {'algorithm': 'sha256_rsa'}, 'signature_value': b'FAKE certificate signature',
@@ -110,7 +116,7 @@ def timestamp():
 
 
 def signature(number=1, *, digest_list=False, with_timestamp=False, bad_certificate=False, rsa=False):
-    signer = certificate('Synthetic signer %s' % number)
+    signer = certificate('Synthetic signer %s' % number, sm2=not rsa)
     certs = DigestList([{'type': 'SHA256', 'value': hashlib.sha256(signer).digest()}]) if digest_list else CertList([signer])
     extension = [{'oid': '1.2.3.4.5', 'critical': False, 'value': b'synthetic extension'}]
     seal = Seal({'info': {'header': {'id': 'ES', 'version': 4, 'vendor': 'SealVerify demo'},
@@ -119,7 +125,7 @@ def signature(number=1, *, digest_list=False, with_timestamp=False, bad_certific
                      'cert_type': 2 if digest_list else 1, 'certs': certs,
                      'created': TIME, 'start': TIME, 'end': datetime(2030, 1, 1, tzinfo=timezone.utc)},
         'picture': {'type': 'PNG', 'data': png(), 'width': 40, 'height': 25}, 'extensions': extension},
-        'cert': certificate('Synthetic maker'), 'algorithm': ALG, 'signature': sm2_value(number + 10)})
+        'cert': certificate('Synthetic maker', sm2=True), 'algorithm': ALG, 'signature': sm2_value(number + 10)})
     value = Signature({'tbs': {'version': 4, 'seal': seal, 'time': TIME,
         'hash': bytes(32), 'property': 'synthetic coverage declaration', 'extensions': extension},
         'cert': b'broken certificate' if bad_certificate else signer, 'algorithm': ALG,
@@ -133,7 +139,7 @@ def signature(number=1, *, digest_list=False, with_timestamp=False, bad_certific
     return value
 
 
-def build_signed_demo(*, broken=False, multiple_documents=False, rsa=False):
+def build_signed_demo(*, broken=False, multiple_documents=False, rsa=False, format_errors=False):
     with ZipFile(BytesIO(build_demo(multiple_documents=multiple_documents))) as archive:
         entries = {name: archive.read(name) for name in archive.namelist()}
     ofd = entries['OFD.xml'].decode('utf-8')
@@ -148,7 +154,14 @@ def build_signed_demo(*, broken=False, multiple_documents=False, rsa=False):
         for index in range(2 if doc == 0 else 1):
             folder = base + 'Sign_%s/' % index
             sigs += '<ofd:Signature ID="%s" Type="Seal" BaseLoc="Sign_%s/Signature.xml"/>' % (index + 1, index)
-            value = signature(index + 1, with_timestamp=index == 1, rsa=rsa)
+            value = signature(index + 1, with_timestamp=index == 1 and not format_errors, rsa=rsa)
+            if format_errors and index == 0:
+                value['tbs']['version'] = 3
+                value['tbs']['seal']['info']['header']['id'] = 'BAD'
+                value['tbs']['hash'] = bytes(31)
+                value['tbs']['property'] = ''
+                value['cert'] = b'broken certificate'
+                value['signature'] = b'broken SM2 encoding'
             entries[folder + 'Seal.esl'] = value['tbs']['seal'].dump()
             entries[folder + 'SignedValue.dat'] = b'bad ASN.1' if broken and index == 0 else value.dump()
             page = '900' if doc else ('10' if index == 0 else '13')
@@ -175,7 +188,9 @@ if __name__ == '__main__':
     parser.add_argument('--broken', action='store_true')
     parser.add_argument('--multiple-documents', action='store_true')
     parser.add_argument('--rsa', action='store_true', help='电子签章使用 RSA 算法标识和合成字节串')
+    parser.add_argument('--format-errors', action='store_true', help='首个签章含多处格式错误，后续签章仍可检查')
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(build_signed_demo(broken=args.broken, multiple_documents=args.multiple_documents, rsa=args.rsa))
+    args.output.write_bytes(build_signed_demo(broken=args.broken, multiple_documents=args.multiple_documents,
+                                            rsa=args.rsa, format_errors=args.format_errors))
     print('已生成结构测试样例（签名和证书不可用于验签）。')
