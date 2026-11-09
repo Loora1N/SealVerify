@@ -114,7 +114,7 @@ test('SM2 完整 r/s 和证书签名分开展示，签名卡片没有摘要或�
     await expect(card).not.toContainText('SHA-256');
     await expect(card).not.toContainText('十六进制预览');
     await expect(card).not.toContainText('预览已截断');
-    await expect(card).toContainText('未验证');
+    await expect(card).toContainText('属性展示，验证结论见检查明细');
   }
   await documentSignature.scrollIntoViewIfNeeded();
   await page.getByText('正在打开文档…', { exact: true }).waitFor({ state: 'hidden' });
@@ -157,7 +157,7 @@ test('格式诊断同时列出多处错误，后续签章继续检查且不显�
   await expect(format).toHaveAttribute('data-format-status', 'incomplete');
   await expect(format.locator('[data-check-status="failed"]')).toHaveCount(0);
   await expect(format.locator('[data-check-status="indeterminate"]')).toHaveCount(1);
-  await expect(format).toContainText('密码验签及完整验证尚未完成');
+  await expect(format).toContainText('格式结果不包含密码验签');
   await page.getByRole('button', { name: '定位第 4 页 · 标记 1' }).click();
   await expect(page.locator('.signature-highlight')).toHaveAttribute('data-page-number', '4');
 });

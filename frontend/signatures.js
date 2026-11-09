@@ -49,7 +49,7 @@ function signatureValue(value, kind, title) {
   const decoded = value?.decoded;
   if (!decoded) { card.append(element('p', '签名值无法解析，请查看问题记录。', 'error')); return card; }
   card.append(element('p', `${decoded.algorithm} · ${decoded.algorithm_oid || '算法 OID 缺失'}`),
-    element('p', `${value.bytes} 字节 · 未验证`, 'muted'));
+    element('p', `${value.bytes} 字节 · 属性展示，验证结论见检查明细`, 'muted'));
   if (decoded.message) card.append(element('p', decoded.message, 'error'));
   for (const [key, label] of [['r_hex', 'r（十六进制，32 字节）'], ['s_hex', 's（十六进制，32 字节）'],
     ['signature_hex', '完整签名值（十六进制）']]) {
@@ -71,11 +71,15 @@ function formatSection(report, title = '第一步：电子签章数据格式验�
   wrapper.dataset.formatStatus = report.overall_status;
   wrapper.dataset.formatRole = role;
   wrapper.dataset.checkedStatus = report.checked_status;
+  const crypto = report.stage === 'm3_verification';
   const counts = report.summary.by_status;
-  const state = report.checked_status === 'failed' ? '发现格式错误' : report.checked_status === 'passed' ? '已检查项通过' : report.checked_status === 'not_applicable' ? '未声明外置印章（不适用）' : '部分项目需复核';
-  wrapper.append(element('p', `格式检查：${state}`, 'format-summary'),
+  const state = report.checked_status === 'failed' ? (crypto ? '发现验证失败项' : '发现格式错误') : report.checked_status === 'passed' ? '已检查项通过' : report.checked_status === 'not_applicable' ? '未声明外置印章（不适用）' : '部分项目需复核';
+  wrapper.append(element('p', `${crypto ? 'M3 验证' : '格式检查'}：${state}`, 'format-summary'),
     element('p', `通过 ${counts.passed} · 失败 ${counts.failed} · 无法确定 ${counts.indeterminate} · 跳过 ${counts.skipped} · 错误 ${counts.error} · 不适用 ${counts.not_applicable}`),
-    element('p', '发现问题后继续独立检查；密码验签及完整验证尚未完成。', 'muted'));
+    element('p', crypto ? '已执行支持范围内的密码运算；证书信任、吊销和可信时间尚未完成，不能认定整体有效。' :
+      '发现问题后继续独立检查；格式结果不包含密码验签，完整验证尚未完成。', 'muted'));
+  if (crypto) wrapper.append(element('p', `验证时刻：${report.settings.verification_time}（本机时钟，非可信时间证据）`),
+    element('p', `SM2 用户标识（十六进制）：${report.settings.sm2_id_hex}`));
   if (report.coverage?.limitations?.length) {
     const notes = element('div', undefined, 'format-coverage');
     notes.append(element('p', '检查能力说明：完整符合性尚未确认。以下是工具的覆盖范围，不是检测出的文件错误。'));
@@ -105,7 +109,33 @@ export function signaturePanel(viewer) {
   const summary = document.querySelector('#signature-status');
   const select = document.querySelector('#signatures');
   const content = document.querySelector('#signature-content');
-  let report = null, documentIndex = 0, highlights = [];
+  let report = null, documentIndex = 0, highlights = [], currentFile = null, generation = 0;
+  const controls = element('div', undefined, 'verification-controls');
+  const uid = element('input'); uid.value = '1234567812345678'; uid.id = 'sm2-user-id'; uid.maxLength = 8191;
+  const label = element('label', 'SM2 用户标识'); label.htmlFor = uid.id;
+  const verifyButton = element('button', '执行 M3 验证'); verifyButton.id = 'verify-m3'; verifyButton.disabled = true;
+  const verificationStatus = element('p', '', 'muted'); verificationStatus.setAttribute('role', 'status');
+  controls.append(label, uid, verifyButton, verificationStatus); content.before(controls);
+  verifyButton.addEventListener('click', async () => {
+    if (!currentFile) return;
+    const token = generation, file = currentFile;
+    const idBytes = new TextEncoder().encode(uid.value);
+    if (!idBytes.length || idBytes.length > 8191) { verificationStatus.textContent = 'SM2 用户标识需要 1–8191 字节。'; return; }
+    verifyButton.disabled = true; verificationStatus.textContent = '正在执行 M3 验证，单项失败后继续检查…';
+    try {
+      const response = await fetch('verify', { method: 'POST', body: file, headers: { 'Content-Type': 'application/ofd',
+        'X-Sealverify-SM2-ID': Array.from(idBytes, b => b.toString(16).padStart(2, '0')).join('') } });
+      if (!response.ok) throw new Error(`本机验证服务返回 ${response.status}`);
+      const result = await response.json();
+      if (token !== generation) return;
+      const selected = select.value;
+      report = result; render();
+      if ([...select.options].some(o => o.value === selected)) { select.value = selected; showSignature(); }
+      verificationStatus.textContent = 'M3 检查结束；请查看逐项结果。完整验证仍未完成。';
+    } catch (error) {
+      if (token === generation) verificationStatus.textContent = `M3 验证未完成：${error.message}。可继续阅读并重试。`;
+    } finally { if (token === generation) verifyButton.disabled = false; }
+  });
   function clearHighlights() { highlights.forEach(node => node.remove()); highlights = []; }
   function locate(stamp, label) {
     clearHighlights();
@@ -135,7 +165,7 @@ export function signaturePanel(viewer) {
       preview.alt = '当前印章预览（未验证）'; preview.className = 'seal-preview'; overview.append(preview);
     }
     overview.append(element('p', `签章 ID：${sig.id || '缺失'} · 类型：${sig.type || '未声明'}`),
-      element('p', `结构解析：${sig.parse_status === 'parsed' ? '已读取' : '部分内容不可读'} · 密码验证：未执行`, 'muted'),
+      element('p', `结构解析：${sig.parse_status === 'parsed' ? '已读取' : '部分内容不可读'} · ${sig.m3_validation ? 'M3 已执行，完整验证未完成' : '密码验证：未执行'}`, 'muted'),
       element('p', `签章版本：${value?.version ?? '不可读'}`),
       element('p', `签章者：${value?.signer_certificate?.subject || '不可读'}`),
       element('p', `XML 声明时间：${sig.declared_time || '未声明'}`),
@@ -151,10 +181,11 @@ export function signaturePanel(viewer) {
     if (!sig.placements.length) placements.append(element('p', '未提供可定位的 StampAnnot。'));
     content.append(overview, placements, formatSection(sig.format_validation));
     const seals = element('div');
-    seals.append(element('p', '依据 GB/T 38540—2020 6.1、6.3 a)。内嵌与外置资源分别检查；未验证二者相等或密码有效性。', 'muted'),
+    seals.append(element('p', '依据 GB/T 38540—2020 6.1、6.3 a)。本节仅检查格式；二者一致性与密码验签另见 M3 检查。', 'muted'),
       formatSection(sig.seal_format_validation?.embedded, '签章内嵌电子印章', 'embedded'),
       formatSection(sig.seal_format_validation?.external, 'OFD 外置电子印章', 'external'));
     content.append(section('第二步：电子印章数据格式验证', seals, true));
+    if (sig.m3_validation) content.append(formatSection(sig.m3_validation, 'M3：密码验签、授权与原文杂凑', 'm3'));
     if (value) {
       const { seal, ...signature } = value;
       content.append(section('电子签章属性与签章者证书', tree(signature)));
@@ -162,12 +193,12 @@ export function signaturePanel(viewer) {
     } else content.append(element('p', '签名值未能解析，请查看问题记录。', 'error'));
     if (sig.external_seal) content.append(sealSection('OFD 外置电子印章（独立资源）', sig.external_seal));
     const refs = element('div');
-    refs.append(element('p', `共 ${sig.references.length} 条引用；杂凑方法：${sig.reference_method || '未声明'}。未重算摘要，清单不代表完整保护范围。`));
+    refs.append(element('p', `共 ${sig.references.length} 条引用；杂凑方法：${sig.reference_method || '未声明'}。${sig.m3_validation ? '原始字节杂凑及绑定结果见 M3 明细；未引用内容不属于已核对范围。' : '未重算摘要，清单不代表完整保护范围。'}`));
     const list = element('ol');
     for (const ref of sig.references) {
       const row = element('li');
       row.append(element('p', ref.path || ref.declared_path),
-        element('p', `${ref.present ? '目标存在' : '目标缺失或有歧义'} · 未验证`),
+        element('p', `${ref.present ? '目标存在' : '目标缺失或有歧义'} · ${sig.m3_validation ? '摘要核对结论见 M3 明细' : '未验证'}`),
         element('code', ref.check_value || '摘要缺失')); list.append(row);
     }
     refs.append(list); content.append(section('文件引用清单', refs));
@@ -193,7 +224,7 @@ export function signaturePanel(viewer) {
     clearHighlights(); content.replaceChildren(); select.replaceChildren();
     const doc = report?.documents.find(item => item.index === documentIndex);
     const sigs = doc?.signatures || [];
-    summary.textContent = doc ? `本份文档发现 ${sigs.length} 个签章 · 均未验证${doc.issues.length ? ' · 解析不完整' : ''}` : '签章解析不可用；仍可阅读页面。';
+    summary.textContent = doc ? `本份文档发现 ${sigs.length} 个签章 · ${report.m3_validation ? 'M3 已执行，完整验证未完成' : '均未验证'}${doc.issues.length ? ' · 解析不完整' : ''}` : '签章解析不可用；仍可阅读页面。';
     for (const [index, sig] of sigs.entries()) {
       const option = element('option', `${index + 1}. ${sig.signed_value?.seal?.property?.name || '签章 ' + (sig.id || '?')}`);
       option.value = index; select.append(option);
@@ -210,19 +241,21 @@ export function signaturePanel(viewer) {
   });
   return {
     async load(file) {
-      this.reset(); summary.textContent = '正在读取签章属性…';
+      this.reset(); currentFile = file; const token = generation; summary.textContent = '正在读取签章属性…';
       button.disabled = false;
       try {
         const response = await fetch('inspect', { method: 'POST', headers: { 'Content-Type': 'application/ofd' }, body: file });
         if (!response.ok) throw new Error(`本机解析服务返回 ${response.status}`);
-        report = await response.json(); render();
+        const result = await response.json(); if (token !== generation) return;
+        report = result; render(); verifyButton.disabled = false;
         if (report.documents.some(doc => doc.signatures.length) || report.issues.length) {
           panel.hidden = false; button.setAttribute('aria-expanded', 'true');
         }
-      } catch (error) { summary.textContent = `签章解析失败：${error.message}。仍可阅读页面。`; panel.hidden = false; button.setAttribute('aria-expanded', 'true'); }
+      } catch (error) { if (token !== generation) return; summary.textContent = `签章解析失败：${error.message}。仍可阅读页面。`; panel.hidden = false; button.setAttribute('aria-expanded', 'true'); }
     },
     document(index) { documentIndex = index; render(); },
     reset() {
+      generation++; currentFile = null; verifyButton.disabled = true; verificationStatus.textContent = '';
       report = null; documentIndex = 0; clearHighlights(); content.replaceChildren(); select.replaceChildren();
       document.querySelector('#inspection-issues').replaceChildren();
       panel.hidden = true; button.disabled = true; button.setAttribute('aria-expanded', 'false');
