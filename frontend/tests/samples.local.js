@@ -4,8 +4,10 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 // 显式运行时必须具备本地清单；不以 skip 掩盖缺失。CI 只运行 *.spec.js 合成样例。
 const manifest = JSON.parse(readFileSync(path.join(root, 'local-data/local-samples.json'), 'utf8'));
+const verification = JSON.parse(readFileSync(path.join(root, 'local-data/m3-samples.json'), 'utf8'));
 test.beforeAll(() => {
   execFileSync(python, ['tools/check_local_samples.py'], { cwd: root });
+  execFileSync(python, ['tools/check_local_verification.py'], { cwd: root });
 });
 for (const [number, sample] of manifest.samples.entries()) {
   test(`本地基准 ${number + 1}：全页可读、签章属性与定位`, async ({ page, readerURL }) => {
@@ -74,6 +76,30 @@ for (const [number, sample] of manifest.samples.entries()) {
       for (const card of certificateCards) {
         expect(await card.locator('[data-component="r_hex"]').count()).toBe(1);
         await expect(card).not.toContainText('SHA-256');
+      }
+    }
+    const expectedM3 = verification.samples.find(item => item.path === sample.path);
+    expect(Boolean(expectedM3)).toBe(true);
+    await page.locator('#verify-m3').click();
+    await expect(page.locator('.verification-controls')).toContainText('检查结束');
+    for (const [index, item] of expectedM3.expected.entries()) {
+      await page.getByRole('combobox', { name: '选择签章' }).selectOption(String(index));
+      const result = page.locator('[data-format-role="m3"]');
+      await expect(result).toHaveAttribute('data-checked-status', item.checked_status);
+      await expect(result).toHaveAttribute('data-format-status', item.overall_status);
+      const checks = await result.locator('[data-check-id]').evaluateAll(rows =>
+        Object.fromEntries(rows.map(row => [row.dataset.checkId, row.dataset.checkStatus])));
+      // 仅比较检查标识及状态，不在公开测试中嵌入附件业务结论。
+      expect(JSON.stringify(Object.entries(checks).sort()) === JSON.stringify(Object.entries(item.checks).sort())).toBe(true);
+      const sig = parsed.documents[0].signatures[index];
+      for (const role of ['embedded', 'external']) {
+        const rows = page.locator(`[data-seal-role="${role}"] [data-check-id]`);
+        await expect(rows).toHaveCount(4);
+        const absent = role === 'external' && sig.seal_format_validation.external.applicability === 'absent';
+        const statuses = await rows.evaluateAll(items => Object.fromEntries(items.map(row =>
+          [row.dataset.checkId, row.dataset.checkStatus])));
+        expect(statuses.path).toBe(absent ? 'not_applicable' : 'indeterminate');
+        expect(statuses.revocation).toBe(absent ? 'not_applicable' : 'indeterminate');
       }
     }
     expect(remote).toEqual([]); expect(errors).toEqual([]);
