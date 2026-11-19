@@ -40,14 +40,15 @@ def identity(name, algorithm, uid):
 
 
 def build_verified_demo(*, algorithm='sm2', digest_list=False, tampered=False, sm2_id=DEFAULT_SM2_ID,
-                        maker_identity=None):
+                        maker_identity=None, signer_identities=None, signed_at=None):
     with ZipFile(BytesIO(build_signed_demo(format_errors=True))) as z:
         entries = {n: z.read(n) for n in z.namelist()}
     targets = sorted(n for n in entries if '/Signs/' not in n)
     for index in range(2):
         base = 'Doc_0/Signs/Sign_%s/' % index
         value = signature(index + 1)
-        signer_cert, sign, oid, name = identity('M3 synthetic signer %s - NOT TRUSTED' % index, algorithm, sm2_id)
+        signer_cert, sign, oid, name = (signer_identities[index] if signer_identities is not None else
+                                        identity('M3 synthetic signer %s - NOT TRUSTED' % index, algorithm, sm2_id))
         maker_cert, make, maker_oid, _ = maker_identity or identity('M3 synthetic maker - NOT TRUSTED', algorithm, sm2_id)
         value['cert'], value['algorithm'] = signer_cert, oid
         seal = value['tbs']['seal']; seal['cert'], seal['algorithm'] = maker_cert, maker_oid
@@ -60,6 +61,9 @@ def build_verified_demo(*, algorithm='sm2', digest_list=False, tampered=False, s
         refs = ''.join('<ofd:Reference FileRef="/%s"><ofd:CheckValue>%s</ofd:CheckValue></ofd:Reference>' %
                        (escape(n, {'"': '&quot;'}), base64.b64encode(digest(entries[n], name)).decode()) for n in targets)
         xml = entries[base + 'Signature.xml'].decode('utf-8')
+        if signed_at is not None:
+            value['tbs']['time'] = signed_at
+            xml = xml.replace('2026-01-01T00:00:00Z', signed_at.isoformat())
         start, end = xml.index('<ofd:References'), xml.index('</ofd:References>') + len('</ofd:References>')
         xml = xml[:start] + '<ofd:References CheckMethod="%s">%s</ofd:References>' % (name.upper(), refs) + xml[end:]
         xml = xml.replace('1.2.156.10197.1.501', oid)

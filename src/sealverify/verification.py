@@ -12,7 +12,7 @@ from .crypto import DEFAULT_SM2_ID, certificate, digest, hash_name, signature_ha
 from .inspection import Inspection, inspect_ofd, resolve, child, children, text, NS
 from .inspection.asn1 import octets, scalar, sequence
 from .inspection.format import FormatChecker, LimitError, frames, der_tree
-from .maker_certificate import Materials, check_maker
+from .maker_certificate import Materials, check_certificate, check_maker
 
 
 MAX_VERIFY_READ_BYTES = 128 * 1024 * 1024
@@ -31,6 +31,7 @@ class Checks(FormatChecker):
     def __init__(self, location, object_id):
         super().__init__(location, object_id)
         self.maker_certificates = {}
+        self.signer_certificate = None
 
     def record(self, path, label, status, message, reference, expected=None, actual=None):
         if status == 'passed':
@@ -57,7 +58,7 @@ class Checks(FormatChecker):
         result.update(cryptographic_verification='attempted', settings=settings)
         result['coverage'] = {'complete': False, 'limitations': [
             '已执行支持范围内的密码运算与原始字节杂凑检查；未知算法/参数/保护范围不能按成功处理。',
-            '制章者证书检查见 M4。签章者信任、可信签章时间、时间戳与印章历史状态仍待验证。',
+            '签章者和制章者证书检查见 M4。链上 CA 吊销、可信签章时间、时间戳与印章历史状态仍待验证。',
             '未引用的包内内容不属于本次已核对的 References 范围；不以渲染页面推断整包保护。']}
         return result
 
@@ -201,8 +202,9 @@ def verify_one(reader, sig, sm2_id, at, c, time_source):
     raw = c.run('signed_value/resource', '签章原始数据读取', '7.3 b)',
                 lambda: reader.read(sig['signed_value_path']), dependency=bool(sig.get('signed_value_path')))
     s = c.fields(c.node(raw, 'signature'), 'signature', ('tbs', 'cert', 'oid', 'signature', 'timestamp'), '7.1.1', ('timestamp',))
-    t = c.fields(s['tbs'], 'tbs', ('version', 'seal', 'time', 'hash', 'property', 'extensions'), '7.1.2', ('extensions',))
     cert = c.value(s['cert'], 'signer/cert', core.OctetString, '7.1.3', True)
+    c.signer_certificate = cert
+    t = c.fields(s['tbs'], 'tbs', ('version', 'seal', 'time', 'hash', 'property', 'extensions'), '7.1.2', ('extensions',))
     cert = c.run('signer/certificate', '签章者证书容器', '7.1.3', lambda: (certificate(cert), cert)[1], dependency=cert is not None)
     oid = c.value(s['oid'], 'signer/algorithm', core.ObjectIdentifier, '7.1.4')
     signature = c.value(s['signature'], 'signer/signature', core.OctetBitString, '7.1.5', True)
@@ -254,6 +256,18 @@ def verify_one(reader, sig, sm2_id, at, c, time_source):
     return result
 
 
+def certificate_stage(role, counts, trust, at, time_source, issues):
+    applicable = sum(counts.values()) - counts['not_applicable']
+    checked = 'incomplete'
+    if counts['failed']:
+        checked = 'failed'
+    elif applicable and counts['passed'] == applicable and not issues:
+        checked = 'passed'
+    return {'stage': 'm4_' + role + '_certificate', 'verification_time': at.isoformat(),
+            'time_source': time_source, 'materials': trust.inventory,
+            'by_status': dict(counts), 'checked_status': checked}
+
+
 def verify_ofd(data, *, sm2_id=DEFAULT_SM2_ID, at=None, materials=()):
     if not isinstance(sm2_id, bytes) or not 1 <= len(sm2_id) <= 8191:
         raise ValueError('SM2 用户标识需要 1–8191 字节')
@@ -265,6 +279,8 @@ def verify_ofd(data, *, sm2_id=DEFAULT_SM2_ID, at=None, materials=()):
     trust = Materials(materials)
     reports = []
     maker_statuses = Counter()
+    signer_statuses = Counter()
+    signer_definitive_failure = False
     try:
         with ZipFile(BytesIO(data)) as archive:
             reader = VerificationReader(archive)
@@ -289,27 +305,25 @@ def verify_ofd(data, *, sm2_id=DEFAULT_SM2_ID, at=None, materials=()):
                                                   sig['key'] + '/' + role, absent=absent)
                         maker_statuses[maker[role]['checked_status']] += 1
                     sig['maker_certificate_validation'] = maker
+                    path = sig.get('signed_value_path') or c.location
+                    signer = check_certificate(c.signer_certificate, trust, at, path + '/cert',
+                                               sig['key'] + '/signer', signer=True)
+                    sig['signer_certificate_validation'] = signer
+                    signer_statuses[signer['checked_status']] += 1
+                    signer_definitive_failure |= signer['definitive_failure']
     except (BadZipFile, ValueError, OSError):
         pass  # inspect_ofd 已报告容器问题；无结果不得成为通过。
     counts = Counter(r['checked_status'] for r in reports)
-    applicable = sum(maker_statuses.values()) - maker_statuses['not_applicable']
-    maker_checked = 'incomplete'
-    if maker_statuses['failed']:
-        maker_checked = 'failed'
-    elif applicable and maker_statuses['passed'] == applicable and not output['issues']:
-        maker_checked = 'passed'
-    output['maker_certificate_validation'] = {
-        'stage': 'm4_maker_certificate', 'verification_time': at.isoformat(), 'time_source': time_source,
-        'materials': trust.inventory, 'by_status': dict(maker_statuses),
-        'checked_status': maker_checked,
-    }
+    for role, statuses in [('maker', maker_statuses), ('signer', signer_statuses)]:
+        output[role + '_certificate_validation'] = certificate_stage(
+            role, statuses, trust, at, time_source, output['issues'])
     checked = 'failed' if counts['failed'] else 'passed' if reports and not output['issues'] and counts['passed'] == len(reports) else 'incomplete'
     output['m3_validation'] = {'stage': 'm3_verification', 'checked_status': checked,
         'overall_status': 'failed' if checked == 'failed' else 'incomplete', 'signatures_checked': len(reports),
         'by_status': dict(counts), 'continuation': 'collect_all', 'cryptographic_verification': 'attempted',
-        'message': '数学验签、授权及原文杂凑结果见本阶段。制章者证书另见 M4。'}
+        'message': '数学验签、授权及原文杂凑结果见本阶段。两类证书另见 M4。'}
     output['verification_summary'] = {
-        'overall_status': 'failed' if 'failed' in (checked, maker_checked) else 'incomplete',
-        'pending': ['signer_certificate', 'trusted_signing_time', 'timestamp'],
+        'overall_status': 'failed' if checked == 'failed' or maker_statuses['failed'] or signer_definitive_failure else 'incomplete',
+        'pending': ['ca_revocation', 'historical_seal_status', 'trusted_signing_time', 'timestamp'],
     }
     return output

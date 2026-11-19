@@ -64,6 +64,19 @@ function section(title, content, open = false) {
   details.open = open; details.append(element('summary', title), content); return details;
 }
 
+function certificateChecks(result) {
+  const states = {passed:'通过', failed:'失败', indeterminate:'无法确定', skipped:'跳过', error:'错误', not_applicable:'不适用'};
+  const list = element('ul', undefined, 'format-checks');
+  const labels = new Map(result.planned_checks.map(check => [check.check_id, check.label]));
+  for (const check of result.checks) {
+    const row = element('li'); row.dataset.checkStatus = check.status; row.dataset.checkId = check.check_id;
+    row.append(element('strong', states[check.status] + ' · ' + labels.get(check.check_id)),
+      element('p', check.message), element('code', check.location));
+    list.append(row);
+  }
+  return list;
+}
+
 function formatSection(report, title = '第一步：电子签章数据格式验证', role = 'signature') {
   const names = { passed: '通过', failed: '失败', indeterminate: '无法确定', skipped: '跳过', error: '错误', not_applicable: '不适用' };
   const wrapper = element('div', undefined, 'format-validation');
@@ -76,7 +89,7 @@ function formatSection(report, title = '第一步：电子签章数据格式验�
   const state = report.checked_status === 'failed' ? (crypto ? '发现验证失败项' : '发现格式错误') : report.checked_status === 'passed' ? '已检查项通过' : report.checked_status === 'not_applicable' ? '未声明外置印章（不适用）' : '部分项目需复核';
   wrapper.append(element('p', `${crypto ? 'M3 验证' : '格式检查'}：${state}`, 'format-summary'),
     element('p', `通过 ${counts.passed} · 失败 ${counts.failed} · 无法确定 ${counts.indeterminate} · 跳过 ${counts.skipped} · 错误 ${counts.error} · 不适用 ${counts.not_applicable}`),
-    element('p', crypto ? '制章者证书检查见 M4。签章者信任与可信时间仍待验证。' :
+    element('p', crypto ? '两类证书的当前状态见 M4。可信签章时间仍待验证。' :
       '发现问题后继续独立检查；格式结果不包含密码验签，完整验证尚未完成。', 'muted'));
   if (crypto) wrapper.append(element('p', `验证时刻：${report.settings.verification_time}（本机时钟，非可信时间证据）`),
     element('p', `SM2 用户标识（十六进制）：${report.settings.sm2_id_hex}`));
@@ -113,7 +126,7 @@ export function signaturePanel(viewer) {
   const controls = element('div', undefined, 'verification-controls');
   const uid = element('input'); uid.value = '1234567812345678'; uid.id = 'sm2-user-id'; uid.maxLength = 8191;
   const label = element('label', 'SM2 用户标识'); label.htmlFor = uid.id;
-  const verifyButton = element('button', '验证签章与制章者证书'); verifyButton.id = 'verify-m3'; verifyButton.disabled = true;
+  const verifyButton = element('button', '验证签章与证书'); verifyButton.id = 'verify-m3'; verifyButton.disabled = true;
   const verificationStatus = element('p', '', 'muted'); verificationStatus.setAttribute('role', 'status');
   const materialLabels = { anchor: '信任锚（明确选定的 CA）', intermediate: '中间 CA', crl: '证书吊销列表（CRL）' };
   const materialsBox = element('fieldset'); materialsBox.append(element('legend', '本次文件使用的离线材料'));
@@ -139,7 +152,7 @@ export function signaturePanel(viewer) {
     const token = generation, file = currentFile;
     const idBytes = new TextEncoder().encode(uid.value);
     if (!idBytes.length || idBytes.length > 8191) { verificationStatus.textContent = 'SM2 用户标识需要 1–8191 字节。'; return; }
-    verifyButton.disabled = true; verificationStatus.textContent = '正在检查签章和制章者证书…';
+    verifyButton.disabled = true; verificationStatus.textContent = '正在检查签章和证书…';
     try {
       const parts = materialInputs.flatMap(([role, input]) => Array.from(input.files, data => ({role, data})));
       if (parts.length > 32 || parts.reduce((sum, p) => sum + p.data.size, 0) > 4 * 1024 * 1024 ||
@@ -157,9 +170,13 @@ export function signaturePanel(viewer) {
       const selected = select.value;
       report = result; render();
       if ([...select.options].some(o => o.value === selected)) { select.value = selected; showSignature(); }
-      verificationStatus.textContent = result.verification_summary?.overall_status === 'failed'
-        ? '检查结束，发现失败项。请查看对应签章的逐项结果。'
-        : '检查结束，整体验证尚未完成。请查看逐项结果。';
+      if (result.verification_summary?.overall_status === 'failed') {
+        verificationStatus.textContent = '检查结束，发现失败项。请查看对应签章的逐项结果。';
+      } else if (result.signer_certificate_validation?.checked_status === 'failed') {
+        verificationStatus.textContent = '检查结束，签章者证书当前已过期或已吊销。需复核签章时刻，整体验证尚未完成。';
+      } else {
+        verificationStatus.textContent = '检查结束，整体验证尚未完成。请查看逐项结果。';
+      }
     } catch (error) {
       if (token === generation) verificationStatus.textContent = `验证未完成：${error.message}。可继续阅读并重试。`;
     } finally { if (token === generation) verifyButton.disabled = false; }
@@ -222,18 +239,22 @@ export function signaturePanel(viewer) {
         box.append(element('p', materialLabels[m.role] + ' #' + m.index + ' · ' +
           (m.status === 'loaded' ? '已读取' : m.message) + ' · SHA-256 ' + m.sha256));
       }
-      const states = {passed:'通过', failed:'失败', indeterminate:'无法确定', skipped:'跳过', error:'错误', not_applicable:'不适用'};
       for (const [role, result] of Object.entries(sig.maker_certificate_validation)) {
-        const list = element('ul', undefined, 'format-checks'); list.dataset.sealRole = role;
-        for (const [i, check] of result.checks.entries()) {
-          const row = element('li'); row.dataset.checkStatus = check.status; row.dataset.checkId = check.check_id;
-          row.append(element('strong', states[check.status] + ' · ' + result.planned_checks[i].label),
-            element('p', check.message), element('code', check.location));
-          list.append(row);
-        }
+        const list = certificateChecks(result); list.dataset.sealRole = role;
         box.append(section(role === 'embedded' ? '内嵌印章的制章者证书' : '外置印章的制章者证书', list, true));
       }
       content.append(section('M4：制章者证书检查', box, true));
+    }
+    if (sig.signer_certificate_validation) {
+      const result = sig.signer_certificate_validation;
+      const box = element('div'); box.dataset.stage = 'signer-certificate';
+      const checkedAt = element('time', result.verification_time); checkedAt.dateTime = result.verification_time;
+      const clock = element('p', '验证时刻（本机时钟） '); clock.append(checkedAt);
+      box.append(clock, certificateChecks(result));
+      if (result.signing_time_review_checks.length) {
+        box.append(element('p', '证书在本次验证时已过期或已吊销。判断签章时刻是否有效，还需要可信时间和当时的证书状态证据。'));
+      }
+      content.append(section('M4：签章者证书检查', box, true));
     }
     if (value) {
       const { seal, ...signature } = value;

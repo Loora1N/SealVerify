@@ -92,6 +92,18 @@ for (const [number, sample] of manifest.samples.entries()) {
       // 仅比较检查标识及状态，不在公开测试中嵌入附件业务结论。
       expect(JSON.stringify(Object.entries(checks).sort()) === JSON.stringify(Object.entries(item.checks).sort())).toBe(true);
       const sig = parsed.documents[0].signatures[index];
+      const signer = page.locator('[data-stage="signer-certificate"]');
+      await expect(signer.locator('[data-check-id]')).toHaveCount(4);
+      const cert = sig.signed_value.signer_certificate;
+      const at = Date.parse(await signer.locator('time').getAttribute('datetime'));
+      const dates = [Date.parse(cert.not_before), at, Date.parse(cert.not_after)];
+      expect(dates.every(Number.isFinite)).toBe(true);
+      await expect(signer.locator('[data-check-id="validity"]')).toHaveAttribute(
+        'data-check-status', dates[0] <= at && at <= dates[2] ? 'passed' : 'failed');
+      for (const id of ['path', 'revocation']) {
+        await expect(signer.locator(`[data-check-id="${id}"]`)).toHaveAttribute('data-check-status', 'indeterminate');
+      }
+      await expect(signer.locator('code').first()).toHaveText(sig.signed_value_path + '/cert');
       for (const role of ['embedded', 'external']) {
         const rows = page.locator(`[data-seal-role="${role}"] [data-check-id]`);
         await expect(rows).toHaveCount(4);

@@ -12,7 +12,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sealverify",
         description="SealVerify：本地 OFD 阅读器与电子签章验证基础模型。",
-        epilog="verify 可离线检查制章者证书。签章者信任与可信时间仍待验证。",
+        epilog="verify 可离线检查制章者和签章者证书。可信签章时间仍待验证。",
     )
     parser.add_argument(
         "--version", action="version", version="SealVerify " + version("sealverify")
@@ -30,7 +30,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     check_seal = commands.add_parser('check-seal-format', help='检查 OFD 内嵌/外置印章格式，或独立印章 DER')
     check_seal.add_argument('file', type=Path, help='本地 OFD 或印章 DER 文件')
     check_seal.add_argument('--seal', action='store_true', help='将输入作为独立 SESeal DER（如 .esl）检查')
-    verify = commands.add_parser('verify', help='检查签章、原始字节杂凑及制章者证书')
+    verify = commands.add_parser('verify', help='检查签章、原始字节杂凑及制章者和签章者证书')
     verify.add_argument('file', type=Path, help='本地 OFD 文件')
     for role, label in [('anchor', '明确信任的 CA'), ('intermediate', '中间 CA'), ('crl', '直接完整 CRL')]:
         verify.add_argument('--' + role, action='append', type=Path, default=[], help=label + ' 文件，可重复')

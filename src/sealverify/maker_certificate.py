@@ -1,4 +1,4 @@
-"""GB/T 38540—2020 6.3 c) 制章者证书的离线诊断。"""
+"""GB/T 38540—2020 6.3 c)、7.3 e) 的制章者和签章者证书诊断。"""
 
 import hashlib
 from datetime import timezone
@@ -19,8 +19,6 @@ from .results import CheckResult, CheckSpec, CheckStatus, VerificationReport
 LIMITS = {'anchor': 128 * 1024, 'intermediate': 128 * 1024, 'crl': 1024 * 1024}
 MAX_MATERIAL_BYTES = 4 * 1024 * 1024
 MAX_MATERIAL_FILES = 32
-LABELS = {'validity': '证书有效期', 'key_usage': '制章签名密钥用法',
-          'path': '至选定信任锚的证书路径', 'revocation': '制章者证书吊销状态'}
 
 
 class Uncertain(Exception):
@@ -29,6 +27,10 @@ class Uncertain(Exception):
 
 class Rejected(Exception):
     """已有证据能确认检查失败。"""
+
+
+class ExpiredOrRevoked(Rejected):
+    """叶证书当前过期或已被吊销。签章者遇此结果时需依据 7.3 f) 复核。"""
 
 
 def extension(obj, oid):
@@ -106,6 +108,8 @@ class Materials:
             detail = f'路径深度 {depth}，OpenSSL {code}（{reason}）。'
             if code in (2, 18, 19, 20, 21):
                 raise Uncertain('无法连接所选信任锚，请补充对应的中间 CA 或信任锚。' + detail) from exc
+            if code == 10 and depth == 0:
+                raise ExpiredOrRevoked('路径中的被检证书已过期。' + detail) from exc
             # 未知算法、后端错误等没有足够证据指认文件无效。
             if code in (9, 10, 25, 32, 37, 47, 48, 79):
                 raise Rejected('证书路径未满足有效期或 CA 约束。' + detail) from exc
@@ -118,20 +122,22 @@ class Materials:
 def validity(cert, at):
     start, end = cert.not_valid_before_utc, cert.not_valid_after_utc
     period = f'{start.isoformat()} 至 {end.isoformat()}'
-    if not start <= at <= end:
-        raise Rejected('验证时刻在证书有效期之外。有效期为 ' + period)
+    if at > end:
+        raise ExpiredOrRevoked('验证时刻证书已过期。有效期为 ' + period)
+    if at < start:
+        raise Rejected('验证时刻证书尚未生效。有效期为 ' + period)
     return '验证时刻位于证书有效期内。有效期为 ' + period
 
 
 def key_usage(cert):
     ku = extension(cert, ExtensionOID.KEY_USAGE)
     if ku is None:
-        raise Uncertain('证书未声明 KeyUsage，需结合证书策略复核制章用途。')
+        raise Uncertain('证书未声明 KeyUsage，需结合证书策略复核签名用途。')
     if not (ku.digital_signature or ku.content_commitment):
         raise Rejected('KeyUsage 同时缺少 digitalSignature 和 contentCommitment。')
     eku = extension(cert, ExtensionOID.EXTENDED_KEY_USAGE)
     if eku is not None and ExtendedKeyUsageOID.ANY_EXTENDED_KEY_USAGE not in eku:
-        raise Uncertain('签名用途位已设置，需依据业务配置确认 EKU 允许制章。')
+        raise Uncertain('签名用途位已设置，需依据业务配置确认专用 EKU 允许此用途。')
     return 'KeyUsage 允许签名：' + '、'.join(name for name, enabled in (
         ('digitalSignature', ku.digital_signature), ('contentCommitment', ku.content_commitment)) if enabled)
 
@@ -201,7 +207,7 @@ def revocation(cert, chain, materials, at):
         raise Uncertain('CRL 缺少 nextUpdate 或在本次验证时刻不可用。')
     if len(crl) > 10000:
         raise Uncertain('CRL 超过 10000 个条目的检查限额。')
-    revoked = False
+    revoked_at = None
     for entry in crl:
         for ext in entry.extensions:
             if ext.critical or isinstance(ext.value, x509.CertificateIssuer):
@@ -211,23 +217,30 @@ def revocation(cert, chain, materials, at):
         if entry.serial_number == cert.serial_number:
             if entry.revocation_date_utc > at:
                 raise Uncertain('匹配的吊销条目时间晚于验证时刻，需复核清单。')
-            revoked = True
-    if revoked:
-        raise Rejected('经验证的 CRL 已列出此制章者证书的序列号。')
+            revoked_at = entry.revocation_date_utc
+    if revoked_at is not None:
+        raise ExpiredOrRevoked('经验证的 CRL 已列出该证书的序列号，清单记载的撤销时间为 ' + revoked_at.isoformat() + '。')
     return '已验证颁发者、CRL 签名、范围及更新时间。所提供完整清单中未列出此证书。'
 
 
 def check_maker(raw, materials, at, location, object_id, *, absent=False):
+    return check_certificate(raw, materials, at, location, object_id, signer=False, absent=absent)
+
+
+def check_certificate(raw, materials, at, location, object_id, *, signer, absent=False):
     results, plan = [], []
     chain = []
+    review_checks = []
+    role = '签章者' if signer else '制章者'
+    reference = 'GB/T 38540—2020 ' + ('7.3 e)' if signer else '6.3 c)') + '；RFC 5280'
     def check_path():
         if cert in materials.anchors:
-            raise Uncertain('制章者证书本身被选为信任锚，无法独立确认颁发者。')
+            raise Uncertain(role + '证书本身被选为信任锚，无法独立确认颁发者。')
         chain.extend(materials.chain(cert, at))
         return '已验证 %d 张证书，终点为所选 CA。' % len(chain)
 
     cert = None
-    reason = '制章者证书原始字段不可读取。'
+    reason = role + '证书原始字段不可读取。'
     if raw is not None:
         try:
             if len(raw) > 64 * 1024:
@@ -235,10 +248,12 @@ def check_maker(raw, materials, at, location, object_id, *, absent=False):
             cert = x509.load_der_x509_certificate(raw)
         except (Uncertain, ValueError, UnsupportedAlgorithm) as exc:
             reason = '证书解码未完成。' + str(exc)[:120]
-    operations = (('validity', lambda: validity(cert, at)), ('key_usage', lambda: key_usage(cert)),
-                  ('path', check_path), ('revocation', lambda: revocation(cert, chain, materials, at)))
-    for key, operation in operations:
-        plan.append(CheckSpec(object_id, key, LABELS[key]))
+    operations = (('validity', '证书有效期', lambda: validity(cert, at)),
+                  ('key_usage', '签章签名密钥用法' if signer else '制章签名密钥用法', lambda: key_usage(cert)),
+                  ('path', '至选定信任锚的证书路径', check_path),
+                  ('revocation', role + '证书吊销状态', lambda: revocation(cert, chain, materials, at)))
+    for key, label, operation in operations:
+        plan.append(CheckSpec(object_id, key, label))
         if absent:
             status, message = 'not_applicable', 'OFD 未声明外置印章。'
         elif cert is None:
@@ -249,14 +264,21 @@ def check_maker(raw, materials, at, location, object_id, *, absent=False):
                 status = 'passed'
             except Rejected as exc:
                 status, message = 'failed', str(exc)
+                if signer and isinstance(exc, ExpiredOrRevoked):
+                    review_checks.append(key)
+                    message += ' 需按 7.3 f) 复核签章时刻的状态。'
             except (Uncertain, UnsupportedAlgorithm, ValueError, x509.DuplicateExtension, x509.UnsupportedGeneralNameType) as exc:
                 status, message = 'indeterminate', str(exc)[:300] or '该算法或证书配置需复核。'
             except Exception as exc:
                 status, message = 'error', '检查器异常：' + type(exc).__name__
         results.append(CheckResult(object_id, key, CheckStatus(status), message,
-                       location=location, standard_reference='GB/T 38540—2020 6.3 c)；RFC 5280'))
+                       location=location, standard_reference=reference))
     report = VerificationReport(location, tuple(plan), tuple(results), generated_at=at).to_dict()
     report.update(checked_status='not_applicable' if absent else report['overall_status'],
                   verification_time=at.isoformat(), chain_sha256=[c.fingerprint(hashes.SHA256()).hex() for c in chain],
                   certificate_sha256=hashlib.sha256(raw).hexdigest() if raw is not None else None)
+    if signer:
+        report['signing_time_review_checks'] = review_checks
+        report['definitive_failure'] = any(
+            row.status == CheckStatus.FAILED and row.check_id not in review_checks for row in results)
     return report

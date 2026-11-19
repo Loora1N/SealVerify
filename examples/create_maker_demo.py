@@ -1,4 +1,4 @@
-"""生成仅用于本地演示的制章者证书链、两个 CRL 和带签名的 OFD。"""
+"""生成用于离线验证的合成证书链、CRL 和两个不同签章者签名的 OFD。"""
 
 import argparse
 from datetime import datetime, timedelta, timezone
@@ -36,7 +36,7 @@ def issue(label, at, *, issuer=None, ca=False, signing=True, expired=False, eku=
 def make_crl(issuer, at, *, revoked=None, stale=False, sign_with=None, extra=None):
     cert, key = issuer
     builder = (x509.CertificateRevocationListBuilder().issuer_name(cert.subject)
-               .last_update(at - timedelta(days=2)).next_update(at + timedelta(days=-1 if stale else 7))
+               .last_update(at - timedelta(hours=48 if stale else 12)).next_update(at + timedelta(days=-1 if stale else 7))
                .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), critical=False)
                .add_extension(x509.CRLNumber(2 if revoked is not None else 1), critical=False))
     if revoked is not None:
@@ -47,20 +47,28 @@ def make_crl(issuer, at, *, revoked=None, stale=False, sign_with=None, extra=Non
     return builder.sign(sign_with or key, hashes.SHA256())
 
 
+def rsa_identity(pair):
+    cert, key = pair
+    def sign(data):
+        return key.sign(data, padding.PKCS1v15(), hashes.SHA256())
+    return cert.public_bytes(serialization.Encoding.DER), sign, '1.2.840.113549.1.1.11', 'sha256'
+
+
 def create(directory):
     directory.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     root = issue('root', now, ca=True)
     intermediate = issue('issuing CA', now, issuer=root, ca=True)
-    maker, key = issue('maker', now, issuer=intermediate)
+    maker = issue('maker', now, issuer=intermediate)
+    signers = [issue('signer ' + str(i), now, issuer=intermediate) for i in (1, 2)]
     files = {'anchor.cer': root[0], 'intermediate.cer': intermediate[0], 'current.crl': make_crl(intermediate, now),
-             'revoked.crl': make_crl(intermediate, now, revoked=maker)}
+             'revoked.crl': make_crl(intermediate, now, revoked=maker[0]),
+             'signer-revoked.crl': make_crl(intermediate, now, revoked=signers[0][0])}
     for name, obj in files.items():
         (directory / name).write_bytes(obj.public_bytes(serialization.Encoding.DER))
-    def sign(data):
-        return key.sign(data, padding.PKCS1v15(), hashes.SHA256())
-    maker_identity = (maker.public_bytes(serialization.Encoding.DER), sign, '1.2.840.113549.1.1.11', 'sha256')
-    (directory / 'maker.ofd').write_bytes(build_verified_demo(algorithm='rsa', maker_identity=maker_identity))
+    (directory / 'maker.ofd').write_bytes(build_verified_demo(
+        algorithm='rsa', maker_identity=rsa_identity(maker), signer_identities=[rsa_identity(s) for s in signers],
+        signed_at=(now - timedelta(days=2)).replace(microsecond=0)))
 
 
 if __name__ == '__main__':
