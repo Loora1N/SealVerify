@@ -12,6 +12,7 @@
 | Pillow | Python `>=11.3,<14`，pip 按解释器选择兼容版本；[源码](https://github.com/python-pillow/Pillow) | MIT-CMU，由 pip 安装的分发包保留许可证及原生依赖声明；用于有界栅格图像解码，不打入浏览器 bundle |
 | gmalg | Python 1.1.2；[源码](https://github.com/ww-rm/gmalg) | MIT，分发包 `licenses/LICENSE`；用于 SM2 公钥验证、验签及 SM3 回退，测试生成器另用临时内存密钥 |
 | cryptography | Python `>=45,<50`；[源码](https://github.com/pyca/cryptography) | Apache-2.0 OR BSD-3-Clause；分发包保留 LICENSE、LICENSE.APACHE、LICENSE.BSD，用于 RSA PKCS #1 v1.5 验签；原生传递依赖随 pip 分发 |
+| pyOpenSSL | Python `>=25.3,<27`，[源码](https://github.com/pyca/pyopenssl) | Apache-2.0，通过 OpenSSL X509Store 在指定时刻使用显式信任锚验证路径 |
 
 - [JavaScript 第三方声明](../src/sealverify/web/vendor/THIRD_PARTY_NOTICES.txt)
 - [字体授权](../src/sealverify/web/fonts/OFL.txt)
