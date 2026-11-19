@@ -12,7 +12,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="sealverify",
         description="SealVerify：本地 OFD 阅读器与电子签章验证基础模型。",
-        epilog="密码验签和证书校验尚未实现；打开阅读不代表验证通过。",
+        epilog="verify 可离线检查制章者和签章者证书。可信签章时间仍待验证。",
     )
     parser.add_argument(
         "--version", action="version", version="SealVerify " + version("sealverify")
@@ -30,17 +30,45 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     check_seal = commands.add_parser('check-seal-format', help='检查 OFD 内嵌/外置印章格式，或独立印章 DER')
     check_seal.add_argument('file', type=Path, help='本地 OFD 或印章 DER 文件')
     check_seal.add_argument('--seal', action='store_true', help='将输入作为独立 SESeal DER（如 .esl）检查')
+    verify = commands.add_parser('verify', help='检查签章、原始字节杂凑及制章者和签章者证书')
+    verify.add_argument('file', type=Path, help='本地 OFD 文件')
+    for role, label in [('anchor', '明确信任的 CA'), ('intermediate', '中间 CA'), ('crl', '直接完整 CRL')]:
+        verify.add_argument('--' + role, action='append', type=Path, default=[], help=label + ' 文件，可重复')
+    verify.add_argument('--sm2-id', default='1234567812345678', help='SM2 用户标识，以 UTF-8 编码；默认 1234567812345678')
     args = parser.parse_args(argv)
-    if args.command in ('inspect', 'check-format', 'check-seal-format'):
+    if args.command in ('inspect', 'check-format', 'check-seal-format', 'verify'):
         from .inspection import inspect_ofd, MAX_FILE_BYTES
         try:
             with args.file.open('rb') as stream:
-                if args.command == 'check-seal-format' and args.seal:
+                if args.command == 'verify':
+                    from .verification import verify_ofd
+                    uid = args.sm2_id.encode('utf-8')
+                    if not 1 <= len(uid) <= 8191:
+                        parser.error('SM2 用户标识需要 1–8191 字节')
+                    from .maker_certificate import LIMITS, MAX_MATERIAL_FILES
+                    paths = [(role, path) for role in LIMITS for path in getattr(args, role)]
+                    if len(paths) > MAX_MATERIAL_FILES:
+                        parser.error('最多选择 32 份验证材料')
+                    def entries():
+                        for role, path in paths:
+                            try:
+                                with path.open('rb') as material:
+                                    raw = material.read(LIMITS[role] + 1)
+                            except OSError:
+                                raw = b''  # 明细会记录此材料不可用，保留独立检查。
+                            yield role, raw
+                    try:
+                        report = verify_ofd(stream.read(MAX_FILE_BYTES + 1), sm2_id=uid, materials=entries())
+                    except ValueError as exc:
+                        parser.error(str(exc))
+                elif args.command == 'check-seal-format' and args.seal:
                     from .inspection.format import check_seal_format
                     report = check_seal_format(stream.read(16 * 1024 * 1024 + 1), args.file.name)
                 else:
                     report = inspect_ofd(stream.read(MAX_FILE_BYTES + 1))
             print(json.dumps(report, ensure_ascii=False, indent=2))
+            if args.command == 'verify':
+                return 0 if report['verification_summary']['overall_status'] == 'passed' else 1
             if args.command == 'check-format':
                 return 0 if all(report[k]['overall_status'] == 'passed' for k in ('format_validation', 'seal_format_validation')) else 1
             if args.command == 'check-seal-format':

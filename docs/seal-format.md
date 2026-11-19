@@ -6,7 +6,7 @@
 
 ## 标准与覆盖
 
-依据已核对的 [GB/T 38540—2020](https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=EBF1360C272E40E7A8B9B32ED0724AB1) 第 6.1 节结构定义及第 6.3 a) 项。第 6.3 b) 制章签名、c) 制章者证书有效性、d) 印章有效期属于后续验证任务。
+本页对应 GB/T 38540—2020 第 6.1 节结构定义和第 6.3 a) 项。第 6.3 b) 制章签名与 d) 当前印章有效期由 M3 独立检查。第 6.3 c) 制章者证书由 M4 独立检查。[国家标准](https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=EBF1360C272E40E7A8B9B32ED0724AB1) · [M3 验证](m3-verification.md) · [M4 制章者证书](m4-maker-certificate.md)
 
 | 条款 | 自动检查 | 当前边界 |
 | --- | --- | --- |

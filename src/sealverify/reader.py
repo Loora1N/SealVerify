@@ -22,6 +22,23 @@ CONTENT_TYPES = {
 }
 
 
+def material_layout(header):
+    """清单只含角色和字节数，材料本体按顺序位于同次请求的 OFD 前面。"""
+    from .maker_certificate import LIMITS, MAX_MATERIAL_BYTES, MAX_MATERIAL_FILES
+    if len(header) > 2048:
+        raise ValueError('材料清单过长')
+    layout = json.loads(header)
+    if not isinstance(layout, list) or len(layout) > MAX_MATERIAL_FILES:
+        raise ValueError('材料清单无效')
+    for item in layout:
+        if (not isinstance(item, list) or len(item) != 2 or not isinstance(item[0], str)
+                or item[0] not in LIMITS or type(item[1]) is not int or not 0 <= item[1] <= LIMITS[item[0]]):
+            raise ValueError('材料角色或长度无效')
+    if sum(size for _, size in layout) > MAX_MATERIAL_BYTES:
+        raise ValueError('材料总量超过 4 MiB')
+    return layout
+
+
 def read_document(path: Path) -> bytes:
     """读取明确指定的文件，大小受限；不解压到磁盘、不修改原件。"""
     if path.suffix.lower() != ".ofd":
@@ -133,7 +150,7 @@ class ReaderHandler(BaseHTTPRequestHandler):
         resource = self._resource()
         if resource is None:
             return
-        if resource == "inspect":
+        if resource in ("inspect", "verify"):
             # 此接口只处理用户所选的字节，不接受路径，也不保存文件。
             if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1:
                 self._send(411)
@@ -143,7 +160,17 @@ class ReaderHandler(BaseHTTPRequestHandler):
             except ValueError:
                 self._send(400)
                 return
-            if not 0 <= size <= MAX_FILE_BYTES:
+            layout = []
+            if self.headers.get('X-SealVerify-Materials') is not None:
+                try:
+                    if resource != 'verify' or len(self.headers.get_all('X-SealVerify-Materials')) != 1:
+                        raise ValueError('材料清单仅用于验证请求')
+                    layout = material_layout(self.headers['X-SealVerify-Materials'])
+                except (ValueError, RecursionError):
+                    self._send(400)
+                    return
+            ofd_size = size - sum(length for _, length in layout)
+            if not 0 <= ofd_size <= MAX_FILE_BYTES:
                 self._send(413)
                 return
             if self.headers.get_content_type() not in ('application/ofd', 'application/octet-stream'):
@@ -151,12 +178,26 @@ class ReaderHandler(BaseHTTPRequestHandler):
                 return
             self.connection.settimeout(30)
             try:
-                data = self.rfile.read(size)
-                if len(data) != size:
+                materials = [(role, self.rfile.read(length)) for role, length in layout]
+                data = self.rfile.read(ofd_size)
+                if len(data) != ofd_size or sum(len(raw) for _, raw in materials) + len(data) != size:
                     self._send(400)
                     return
-                from .inspection import inspect_ofd
-                payload = json.dumps(inspect_ofd(data), ensure_ascii=False).encode('utf-8')
+                if resource == 'verify':
+                    from .crypto import DEFAULT_SM2_ID
+                    from .verification import verify_ofd
+                    try:
+                        uid = bytes.fromhex(self.headers.get('X-Sealverify-SM2-ID', DEFAULT_SM2_ID.hex()))
+                        if not 1 <= len(uid) <= 8191:
+                            raise ValueError('SM2 ID length')
+                    except ValueError:
+                        self._send(400, 'SM2 用户标识需要 1–8191 字节的十六进制编码。'.encode('utf-8'))
+                        return
+                    report = verify_ofd(data, sm2_id=uid, materials=materials)
+                else:
+                    from .inspection import inspect_ofd
+                    report = inspect_ofd(data)
+                payload = json.dumps(report, ensure_ascii=False).encode('utf-8')
                 if len(payload) > 32 * 1024 * 1024:
                     self._send(422, '解析清单超过 32 MiB 展示上限。'.encode('utf-8'))
                     return
