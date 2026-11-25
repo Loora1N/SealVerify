@@ -55,3 +55,8 @@ footer { padding: 7px 24px; background: #fff; border-top: 1px solid #dbe3eb; col
 [hidden] { display: none !important; }
 .exit-message { margin: auto; font-size: 20px; }
 @media (max-width: 760px) { .app-header { padding: 10px 12px; align-items: flex-start; flex-direction: column; gap: 10px; } .context-bar { padding: 8px 12px; gap: 6px; } .privacy { width: 100%; margin: 0; } footer { padding: 6px 12px; } #document-name { max-width: 85vw; } }
+.verification-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; }
+.verification-controls label, .verification-controls p { flex-basis: 100%; margin: 0; }
+.verification-controls input { min-width: 0; width: 100%; box-sizing: border-box; padding: 7px; }
+.verification-controls button { font: inherit; padding: 8px 12px; border: 1px solid #175c63; border-radius: 5px; background: #175c63; color: #fff; cursor: pointer; }
+.verification-controls button:disabled { opacity: .45; cursor: default; }

@@ -88,6 +88,24 @@ class ReaderServerTests(unittest.TestCase):
         self.thread.join(timeout=5)
         self.assertFalse(self.thread.is_alive())
 
+    def test_verification_endpoint_executes_m3_without_persisting_document(self):
+        from examples.create_verified_demo import build_verified_demo
+        data = build_verified_demo()
+        with self.request('verify', data=data, headers={'Content-Type':'application/ofd'}) as response:
+            report = json.load(response)
+        self.assertEqual(report['m3_validation']['checked_status'], 'passed')
+        self.assertEqual(report['m3_validation']['overall_status'], 'incomplete')
+        self.assertEqual(self.server.document, self.document)
+
+    def test_verification_rejects_bad_uid_foreign_origin_and_content_type(self):
+        for headers, code in [({'Content-Type':'application/ofd','X-Sealverify-SM2-ID':'invalid'},400),
+                              ({'Content-Type':'application/ofd','X-Sealverify-SM2-ID':''},400),
+                              ({'Content-Type':'application/ofd','Origin':'https://example.com'},403),
+                              ({'Content-Type':'text/plain'},415)]:
+            with self.subTest(code=code), self.assertRaises(HTTPError) as error:
+                self.request('verify',data=self.document,headers=headers)
+            self.assertEqual(error.exception.code,code)
+
 
 class DocumentInputTests(unittest.TestCase):
     def setUp(self):

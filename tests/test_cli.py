@@ -25,7 +25,8 @@ class EntryPointTests(unittest.TestCase):
             with self.subTest(args=args):
                 completed = self.run_cli(*args)
                 self.assertEqual(completed.returncode, 0, completed.stderr)
-                self.assertIn("尚未实现", completed.stdout)
+                self.assertIn("证书信任、吊销及可信时间尚未完成", completed.stdout)
+                self.assertIn("verify", completed.stdout)
 
     def test_unknown_file_input_is_not_treated_as_verified(self):
         completed = self.run_cli("example.ofd")
