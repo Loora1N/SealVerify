@@ -1,6 +1,6 @@
 # 制章者证书的离线检查
 
-打开 OFD，在右侧签章面板展开 **选择 CA 和 CRL（可选）**，按角色选择材料，然后点击 **验证签章与制章者证书**。在 **M4：制章者证书检查** 中选择内嵌或外置印章，查看该印章制章者证书的结果。每个签章单独报告。界面显示本次验证时刻，来自本机时钟。
+打开 OFD，在右侧签章面板展开 **选择 CA 和 CRL（可选）**，按角色选择材料，然后点击 **验证签章与证书**。在 **M4：制章者证书检查** 中选择内嵌或外置印章，查看该印章制章者证书的结果。每个签章单独报告。界面显示本次验证时刻，来自本机时钟。
 
 | 检查 | 通过的条件 | 其他结果举例 |
 | --- | --- | --- |
@@ -35,7 +35,7 @@
 .\.venv\Scripts\python.exe -m sealverify verify local-data/maker-demo/maker.ofd --anchor local-data/maker-demo/anchor.cer --intermediate local-data/maker-demo/intermediate.cer --crl local-data/maker-demo/current.crl
 ```
 
-JSON 中每个签章的 `maker_certificate_validation.embedded` 和 `.external` 含该资源的四项明细。顶层同名对象记录材料及阶段汇总。整份文件的结果见 `verification_summary.overall_status`。确认失败时为 `failed`，其余结果为 `incomplete`，因为签章者证书信任和时间证据仍待验证。这两种情况的 CLI 退出码均为 1。
+JSON 中每个签章的 `maker_certificate_validation.embedded` 和 `.external` 含该资源的四项明细。顶层同名对象记录材料及阶段汇总。整份文件的结果见 `verification_summary.overall_status`。目前的 `failed` 和 `incomplete` 都返回 CLI 退出码 1。签章者证书的当前结果及历史复核规则见[签章者证书检查](m4-signer-certificate.md)。
 
 ## 标准和支持范围
 
