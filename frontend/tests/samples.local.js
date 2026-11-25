@@ -81,7 +81,7 @@ for (const [number, sample] of manifest.samples.entries()) {
     const expectedM3 = verification.samples.find(item => item.path === sample.path);
     expect(Boolean(expectedM3)).toBe(true);
     await page.locator('#verify-m3').click();
-    await expect(page.locator('.verification-controls')).toContainText('M3 检查结束');
+    await expect(page.locator('.verification-controls')).toContainText('检查结束');
     for (const [index, item] of expectedM3.expected.entries()) {
       await page.getByRole('combobox', { name: '选择签章' }).selectOption(String(index));
       const result = page.locator('[data-format-role="m3"]');
@@ -91,6 +91,16 @@ for (const [number, sample] of manifest.samples.entries()) {
         Object.fromEntries(rows.map(row => [row.dataset.checkId, row.dataset.checkStatus])));
       // 仅比较检查标识及状态，不在公开测试中嵌入附件业务结论。
       expect(JSON.stringify(Object.entries(checks).sort()) === JSON.stringify(Object.entries(item.checks).sort())).toBe(true);
+      const sig = parsed.documents[0].signatures[index];
+      for (const role of ['embedded', 'external']) {
+        const rows = page.locator(`[data-seal-role="${role}"] [data-check-id]`);
+        await expect(rows).toHaveCount(4);
+        const absent = role === 'external' && sig.seal_format_validation.external.applicability === 'absent';
+        const statuses = await rows.evaluateAll(items => Object.fromEntries(items.map(row =>
+          [row.dataset.checkId, row.dataset.checkStatus])));
+        expect(statuses.path).toBe(absent ? 'not_applicable' : 'indeterminate');
+        expect(statuses.revocation).toBe(absent ? 'not_applicable' : 'indeterminate');
+      }
     }
     expect(remote).toEqual([]); expect(errors).toEqual([]);
     await expect(page.locator('#messages')).not.toContainText('渲染已取消');

@@ -21,12 +21,12 @@ test('SM2 与 RSA 真签名、授权及杂凑执行，整体保持未完成', as
     await expect(page.locator('#verify-m3')).toBeEnabled();
     await page.getByRole('combobox', { name: '选择签章' }).selectOption('1');
     await page.locator('#verify-m3').click();
-    await expect(page.locator('.verification-controls')).toContainText('M3 检查结束');
+    await expect(page.locator('.verification-controls')).toContainText('检查结束');
     const result = page.locator('[data-format-role="m3"]');
     await expect(result).toHaveAttribute('data-checked-status', 'passed');
     await expect(result).toHaveAttribute('data-format-status', 'incomplete');
     await expect(page.getByRole('combobox', { name: '选择签章' })).toHaveValue('1');
-    await expect(result).toContainText('证书信任、吊销和可信时间尚未完成');
+    await expect(result).toContainText('签章者信任与可信时间仍待验证');
     await result.getByText('查看通过与不适用项目', { exact: true }).click();
     for (const key of ['signature_value', 'seal/embedded/signature_value', 'seal/external/signature_value',
       'authorization', 'document_digest', 'references/binding']) {
@@ -80,7 +80,7 @@ test('验证服务失败仍可阅读，旧文件的迟到结果不会覆盖新�
   const pending = new Promise(resolve => { release = resolve; });
   await page.route('**/verify', async route => { await pending; await route.fulfill({ json: { documents: [], issues: [] } }); });
   await page.locator('#verify-m3').click();
-  await expect(page.locator('.verification-controls')).toContainText('正在执行 M3');
+  await expect(page.locator('.verification-controls')).toContainText('正在检查签章和制章者证书');
   await page.locator('#file').setInputFiles(fixture('verified-rsa'));
   await expect(page.locator('#verify-m3')).toBeEnabled();
   release();

@@ -39,7 +39,8 @@ def identity(name, algorithm, uid):
     return cert.dump(), sign, oid, hash_alg
 
 
-def build_verified_demo(*, algorithm='sm2', digest_list=False, tampered=False, sm2_id=DEFAULT_SM2_ID):
+def build_verified_demo(*, algorithm='sm2', digest_list=False, tampered=False, sm2_id=DEFAULT_SM2_ID,
+                        maker_identity=None):
     with ZipFile(BytesIO(build_signed_demo(format_errors=True))) as z:
         entries = {n: z.read(n) for n in z.namelist()}
     targets = sorted(n for n in entries if '/Signs/' not in n)
@@ -47,9 +48,9 @@ def build_verified_demo(*, algorithm='sm2', digest_list=False, tampered=False, s
         base = 'Doc_0/Signs/Sign_%s/' % index
         value = signature(index + 1)
         signer_cert, sign, oid, name = identity('M3 synthetic signer %s - NOT TRUSTED' % index, algorithm, sm2_id)
-        maker_cert, make, _, _ = identity('M3 synthetic maker - NOT TRUSTED', algorithm, sm2_id)
+        maker_cert, make, maker_oid, _ = maker_identity or identity('M3 synthetic maker - NOT TRUSTED', algorithm, sm2_id)
         value['cert'], value['algorithm'] = signer_cert, oid
-        seal = value['tbs']['seal']; seal['cert'], seal['algorithm'] = maker_cert, oid
+        seal = value['tbs']['seal']; seal['cert'], seal['algorithm'] = maker_cert, maker_oid
         props = seal['info']['property']
         props['cert_type'] = 2 if digest_list else 1
         props['certs'] = DigestList([{'type': name.upper(), 'value': digest(signer_cert, name)}]) if digest_list else CertList([signer_cert])

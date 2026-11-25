@@ -12,6 +12,7 @@ from .crypto import DEFAULT_SM2_ID, certificate, digest, hash_name, signature_ha
 from .inspection import Inspection, inspect_ofd, resolve, child, children, text, NS
 from .inspection.asn1 import octets, scalar, sequence
 from .inspection.format import FormatChecker, LimitError, frames, der_tree
+from .maker_certificate import Materials, check_maker
 
 
 MAX_VERIFY_READ_BYTES = 128 * 1024 * 1024
@@ -27,6 +28,10 @@ class VerificationReader(Inspection):
 
 
 class Checks(FormatChecker):
+    def __init__(self, location, object_id):
+        super().__init__(location, object_id)
+        self.maker_certificates = {}
+
     def record(self, path, label, status, message, reference, expected=None, actual=None):
         if status == 'passed':
             message = '本项检查通过；数学/字节一致性不代表证书可信或完整签章有效。'
@@ -52,7 +57,7 @@ class Checks(FormatChecker):
         result.update(cryptographic_verification='attempted', settings=settings)
         result['coverage'] = {'complete': False, 'limitations': [
             '已执行支持范围内的密码运算与原始字节杂凑检查；未知算法/参数/保护范围不能按成功处理。',
-            'M4 尚未完成：证书路径、吊销、证书有效期/用途、可信签章时间、时间戳与印章历史状态。',
+            '制章者证书检查见 M4。签章者信任、可信签章时间、时间戳与印章历史状态仍待验证。',
             '未引用的包内内容不属于本次已核对的 References 范围；不以渲染页面推断整包保护。']}
         return result
 
@@ -71,6 +76,7 @@ def seal_checks(c, node, role, sm2_id, at):
     path = 'seal/' + role
     fields = c.fields(node, path, ('info', 'cert', 'algorithm', 'signature'), '6.1.1')
     cert = c.value(fields['cert'], path + '/cert', core.OctetString, '6.1.3', True)
+    c.maker_certificates[role] = cert
     oid = c.value(fields['algorithm'], path + '/algorithm', core.ObjectIdentifier, '6.1.4')
     sig = c.value(fields['signature'], path + '/signature', core.OctetBitString, '6.1.5', True)
     info = fields['info']
@@ -248,7 +254,7 @@ def verify_one(reader, sig, sm2_id, at, c, time_source):
     return result
 
 
-def verify_ofd(data, *, sm2_id=DEFAULT_SM2_ID, at=None):
+def verify_ofd(data, *, sm2_id=DEFAULT_SM2_ID, at=None, materials=()):
     if not isinstance(sm2_id, bytes) or not 1 <= len(sm2_id) <= 8191:
         raise ValueError('SM2 用户标识需要 1–8191 字节')
     time_source = 'caller' if at is not None else 'local_clock'
@@ -256,7 +262,9 @@ def verify_ofd(data, *, sm2_id=DEFAULT_SM2_ID, at=None):
     if at.utcoffset() is None:
         raise ValueError('验证时刻必须包含时区')
     output = inspect_ofd(data)
+    trust = Materials(materials)
     reports = []
+    maker_statuses = Counter()
     try:
         with ZipFile(BytesIO(data)) as archive:
             reader = VerificationReader(archive)
@@ -271,13 +279,37 @@ def verify_ofd(data, *, sm2_id=DEFAULT_SM2_ID, at=None):
                         result = c.finish({'sm2_id_hex': sm2_id.hex(), 'verification_time': at.isoformat(), 'time_source': time_source})
                     sig['m3_validation'] = result
                     reports.append(result)
+                    maker = {}
+                    for role in ('embedded', 'external'):
+                        external = role == 'external'
+                        absent = external and sig['seal_format_validation'][role]['applicability'] == 'absent'
+                        path = sig.get('external_seal_path' if external else 'signed_value_path') or c.location
+                        location = path + ('/cert' if external else '/toSign/eseal/cert')
+                        maker[role] = check_maker(c.maker_certificates.get(role), trust, at, location,
+                                                  sig['key'] + '/' + role, absent=absent)
+                        maker_statuses[maker[role]['checked_status']] += 1
+                    sig['maker_certificate_validation'] = maker
     except (BadZipFile, ValueError, OSError):
         pass  # inspect_ofd 已报告容器问题；无结果不得成为通过。
     counts = Counter(r['checked_status'] for r in reports)
+    applicable = sum(maker_statuses.values()) - maker_statuses['not_applicable']
+    maker_checked = 'incomplete'
+    if maker_statuses['failed']:
+        maker_checked = 'failed'
+    elif applicable and maker_statuses['passed'] == applicable and not output['issues']:
+        maker_checked = 'passed'
+    output['maker_certificate_validation'] = {
+        'stage': 'm4_maker_certificate', 'verification_time': at.isoformat(), 'time_source': time_source,
+        'materials': trust.inventory, 'by_status': dict(maker_statuses),
+        'checked_status': maker_checked,
+    }
     checked = 'failed' if counts['failed'] else 'passed' if reports and not output['issues'] and counts['passed'] == len(reports) else 'incomplete'
     output['m3_validation'] = {'stage': 'm3_verification', 'checked_status': checked,
         'overall_status': 'failed' if checked == 'failed' else 'incomplete', 'signatures_checked': len(reports),
         'by_status': dict(counts), 'continuation': 'collect_all', 'cryptographic_verification': 'attempted',
-        'message': '数学验签和引用杂凑按已支持范围执行；证书信任、吊销及可信时间仍未完成。'}
-    # 原始属性的 verification=not_performed 保持为属性契约；实际运算只在 m3_validation 中表达。
+        'message': '数学验签、授权及原文杂凑结果见本阶段。制章者证书另见 M4。'}
+    output['verification_summary'] = {
+        'overall_status': 'failed' if 'failed' in (checked, maker_checked) else 'incomplete',
+        'pending': ['signer_certificate', 'trusted_signing_time', 'timestamp'],
+    }
     return output
